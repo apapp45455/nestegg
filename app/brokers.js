@@ -12,6 +12,9 @@ import fubon from './brokers/fubon.js'
 
 const BROKERS = Object.fromEntries([fubon].map(b => [b.id, b]))
 const run = promisify(execFile)
+// Windows 指定系統內建的 bsdtar：PATH 上先找到 Git for Windows 的 GNU tar 會把 C:\ 當成遠端主機
+const TAR = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar'
+const untar = (archive, dir) => run(TAR, ['-xf', archive, '-C', dir]) // bsdtar 能解 zip、tgz、tar.gz
 let ctx, setupWin
 const running = new Map() // 券商 id → { kind: 'sync' | 'install', promise }
 
@@ -43,8 +46,8 @@ async function installSdk(b, file) {
     // 用讀寫複製一份（不帶延伸屬性）再解壓縮，就不會產生標記。
     const archive = join(tmp, basename(file))
     await writeFile(archive, await readFile(file))
-    await run('tar', ['-xf', archive, '-C', tmp]) // macOS 與 Windows 10+ 內建的 tar（bsdtar）都能解 zip 與 tgz
-    const dir = await b.sdk.unpack(tmp, run)
+    await untar(archive, tmp)
+    const dir = await b.sdk.unpack(tmp, untar)
     // 先把舊的移開、新的換上，再刪舊的：不會有「刪了一半」的 SDK；換不上就放回舊的
     const old = join(tmp, 'old')
     if (existsSync(sdkDir(b))) await rename(sdkDir(b), old)
@@ -81,11 +84,14 @@ async function sync(b, creds, from) {
   return { added, accounts, warnings }
 }
 
+// 要使用者處理才會好的錯誤（登入失敗、讀不到金鑰）帶 needsUser，自動同步會因此暫停；adapter 也這樣標記
+const needsUser = message => Object.assign(new Error(message), { needsUser: true })
+
 // 同一家券商同一時間只做一件事（同步或安裝 SDK）。手動與自動同步撞在一起時共用同一次結果，不重複登入；
 // 同步遇上安裝（或反過來）就擋下。不同券商可以同時同步（寫帳本由 main.js 排隊，不會互相蓋掉）
 function exclusive(id, kind, fn) {
   const busy = running.get(id)
-  if (busy?.kind === kind) return busy.promise
+  if (busy?.kind === 'sync' && kind === 'sync') return busy.promise // 只有同步共用結果；安裝不行（第二個檔案會被默默忽略）
   idle(id)
   const promise = fn().finally(() => running.delete(id))
   running.set(id, { kind, promise })
@@ -103,10 +109,12 @@ const syncSaved = id => exclusive(id, 'sync', async () => {
   const from = addDays(cfg.lastSync, -7) // 重疊一週，補抓上次同步後才成交的紀錄（重複的會被合併掉）
   let result
   try {
-    result = await sync(b, await unseal(cfg.secret), from < cfg.since ? cfg.since : from)
+    const creds = await unseal(cfg.secret).catch(e => { throw needsUser(`讀不到儲存的金鑰：${e.message}`) })
+    result = await sync(b, creds, from < cfg.since ? cfg.since : from)
   } catch (e) {
-    // 只有同步本身失敗才暫停自動同步（反覆登入失敗可能讓帳號被鎖）；寫不進暫停狀態也不要蓋掉原本的錯誤
-    await writeConfig(b, { ...cfg, paused: e.message }).catch(() => {})
+    // 登入失敗、讀不到金鑰這種要使用者處理的才暫停自動同步（反覆登入失敗可能讓帳號被鎖）；
+    // 斷網、逾時這類暫時的問題不暫停，下個小時再試。寫不進暫停狀態也不要蓋掉原本的錯誤
+    if (e.needsUser) await writeConfig(b, { ...cfg, paused: e.message }).catch(() => {})
     throw e
   }
   await writeConfig(b, { ...cfg, lastSync: ctx.today(), paused: undefined })
@@ -121,8 +129,9 @@ async function autoSync() {
     try {
       const { added } = await syncSaved(b.id)
       if (added) ctx.say(`${b.name}同步完成，新增 ${added} 筆紀錄`)
-    } catch {
-      ctx.say(`⚠️ ${b.name}同步失敗\n已暫停自動同步\n右鍵 → 證券帳戶同步…`)
+    } catch (e) {
+      if (e.needsUser) ctx.say(`⚠️ ${b.name}同步失敗\n已暫停自動同步\n右鍵 → 證券帳戶同步…`)
+      else console.error(`${b.name}同步失敗，下個小時再試：`, e.message)
     }
   }
 }
@@ -169,6 +178,7 @@ export function initBrokers(context) {
   handle('broker:status', id => status(broker(id)))
   handle('broker:install-sdk', async id => {
     const b = broker(id)
+    idle(id) // 同步中就別讓人白選一次檔案
     const file = await pickFile({ title: `選擇下載的${b.sdk.label}`, name: b.sdk.label, extensions: ['zip', 'tgz', 'gz'] })
     return file && exclusive(id, 'install', () => installSdk(b, file))
   })

@@ -116,6 +116,18 @@ async function runAll() {
     assert.equal(secret(), before)
   })
 
+  await test('富邦同步：斷線這種暫時的錯誤不暫停自動同步，下個小時會再試', async () => {
+    writeFileSync(join(SDK, 'fail-query'), '')
+    try {
+      const res = await page("window.broker.sync('fubon')")
+      assert.match(res.error, /連線中斷/)
+    } finally {
+      rmSync(join(SDK, 'fail-query'))
+    }
+    assert.equal((await page("window.broker.status('fubon')")).ok.paused, undefined)
+    assert.equal(ledgerLines(), 11)
+  })
+
   await test('富邦同步：登入失敗時暫停自動同步、帳本不變', async () => {
     writeFileSync(join(SDK, 'fail-login'), '')
     const res = await page("window.broker.sync('fubon')")
