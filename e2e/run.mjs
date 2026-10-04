@@ -220,13 +220,32 @@ async function runAll() {
     assert.equal(ledgerLines(',0050,'), 11)
   })
 
-  await test('永豐同步：上次同步的紀錄檔壞掉也照樣同步，不會多出重複的', async () => {
-    writeFileSync(join(DATA, 'sinopac', 'rows.json'), '[{ 壞掉')
-    const res = await page("window.broker.sync('sinopac')")
-    assert.equal(res.error, undefined, res.error)
+  await test('永豐同步：上次同步的紀錄檔壞掉就停下來、帳本不動（不猜，免得本金重複）', async () => {
+    const file = join(DATA, 'sinopac', 'rows.json')
+    const saved = readFileSync(file, 'utf8')
+    writeFileSync(file, '[{ 壞掉')
+    try {
+      const res = await page("window.broker.sync('sinopac')")
+      assert.match(res.error, /紀錄檔損壞/)
+      assert.match((await page("window.broker.status('sinopac')")).ok.paused, /紀錄檔損壞/)
+    } finally {
+      writeFileSync(file, saved)
+    }
     assert.equal(ledgerLines(',2890,'), 3)
     assert.equal(ledgerLines(',2884,'), 1)
-    assert.equal(JSON.parse(readFileSync(join(DATA, 'sinopac', 'rows.json'), 'utf8')).length, 4)
+  })
+
+  await test('永豐同步：券商暫時回傳空的，不會把帳本裡整批清掉', async () => {
+    const { positions, profitLoss } = shioaji
+    Object.assign(shioaji, { positions: [], profitLoss: [] })
+    try {
+      const res = await page("window.broker.sync('sinopac')")
+      assert.match(res.error, /沒有回傳任何持倉/)
+    } finally {
+      Object.assign(shioaji, { positions, profitLoss })
+    }
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
   })
 
   await test('永豐同步：上次寫完帳本、還沒記好就當機（紀錄檔裡新舊兩批都在），下次同步也不會重複', async () => {

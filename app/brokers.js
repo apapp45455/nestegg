@@ -88,8 +88,12 @@ async function sync(b, creds, from) {
   })
   if (!b.snapshot) return { added: await ctx.onRows(rows), accounts, warnings }
   // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批。
-  // rows.json 讀不出來（手動改壞）就當作沒有：一樣的紀錄合併時會去重，不要因此擋住同步
-  const previous = await readJson(rowsFile(b), []).catch(() => [])
+  // rows.json 讀不出來就停下來、帳本不動：快照的數字會變，猜錯上一批會讓本金重複算
+  const previous = await readJson(rowsFile(b), []).catch(() => {
+    throw needsUser(`${b.name}的同步紀錄檔損壞，為了不重複記帳先停止同步。請刪除 NestEgg 資料夾裡的 ${b.id}/rows.json，再檢查帳本有沒有重複的紀錄`)
+  })
+  // 這次什麼都沒查到、上次卻有：多半是券商暫時回空（維護中），不要因此把帳本裡整批清掉
+  if (!rows.length && previous.length) throw new Error(`${b.name}這次沒有回傳任何持倉或損益，先不更新帳本，下個小時再試`)
   // 寫帳本前先記下新舊兩批：寫到一半當機或下一步寫不進去，下次同步兩批都會先拿掉，不會留下重複
   await writeJson(rowsFile(b), [...previous, ...rows])
   const added = await ctx.onRows(rows, previous)
