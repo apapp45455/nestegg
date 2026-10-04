@@ -121,6 +121,8 @@ async function connect(form) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期')
   if (!(await sdkVersion())) throw new Error('請先完成步驟 3：安裝 SDK')
   if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('這台電腦無法安全加密金鑰，因此不能儲存')
+  // 不能共用正在跑的自動同步：那樣會回傳舊金鑰的結果，新輸入的金鑰也不會被存起來
+  if (running) throw new Error('正在同步中，請等一下再按「連線並同步」')
   return exclusive(async () => {
     const result = await sync(creds, since) // 先確定登入與查詢成功，才把金鑰存起來
     await writeConfig({ secret: await seal(creds), since, lastSync: ctx.today() })
