@@ -18,6 +18,18 @@ const freePort = () => new Promise((resolve, reject) => {
   })
 })
 
+// 子程序的環境變數：使用者自己設的 SJ_CA_PATH、SJ_CA_PASSWD、SJ_API_KEY… 一個都不帶進去，
+// 只放 NestEgg 自己的。沒有憑證，Shioaji 就不能下單。
+export const serverEnv = (creds, port, home, env = process.env) => ({
+  ...Object.fromEntries(Object.entries(env).filter(([k]) => !k.toUpperCase().startsWith('SJ_'))),
+  SJ_API_KEY: creds.apiKey,
+  SJ_SEC_KEY: creds.secretKey,
+  SJ_PRODUCTION: 'true',
+  SJ_HTTP_ADDR: `127.0.0.1:${port}`,
+  SJ_UDS_DISABLE: 'true',
+  SJ_HOME_PATH: join(home, 'shioaji'), // 登入權杖、商品檔放在 NestEgg 的資料夾，不跟你自己的 Shioaji 混在一起
+})
+
 export default {
   id: 'sinopac',
   name: '永豐金證券',
@@ -45,22 +57,14 @@ export default {
     return creds
   },
 
-  // 開一個只聽本機、隨機埠的 Shioaji 伺服器。不給憑證（SJ_CA_PATH）：沒有啟用憑證就不能下單。
+  // 開一個只聽本機、隨機埠的 Shioaji 伺服器
   async server(bin, creds, home) {
     const port = await freePort()
     const child = spawn(bin, ['server', 'start', '--production', '--no-open'], {
       cwd: home,
       windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'],
-      env: {
-        ...process.env,
-        SJ_API_KEY: creds.apiKey,
-        SJ_SEC_KEY: creds.secretKey,
-        SJ_PRODUCTION: 'true',
-        SJ_HTTP_ADDR: `127.0.0.1:${port}`,
-        SJ_UDS_DISABLE: 'true',
-        SJ_HOME_PATH: join(home, 'shioaji'), // 登入權杖、商品檔放在 NestEgg 的資料夾，不跟你自己的 Shioaji 混在一起
-      },
+      env: serverEnv(creds, port, home),
     })
     let log = '', dead = false
     child.stderr.on('data', d => { log = (log + d).slice(-400) })

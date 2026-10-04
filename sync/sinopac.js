@@ -9,10 +9,17 @@ const name = v => String(v ?? '').split('.').pop() // 'Cash'；有的版本會�
 const day = d => String(d).replace(/^(\d{4})[-/]?(\d{2})[-/]?(\d{2}).*$/, '$1-$2-$3') // 也接受 20260518、2026/05/18
 const isCash = r => name(r.cond) === 'Cash' // 融資、融券用的不是自己的本金，不算
 
-// 明細的 quantity 有的以「張」計、有的以「股」計，依合計的股數換算回股數
+// 明細的 quantity 有的以「張」計、有的以「股」計，依合計的股數換算回股數。
+// 前面幾筆無條件捨去、最後一筆拿剩下的，合計一定剛好等於 shares（不會留下幽靈持股或超賣）
 function spread(lots, shares) {
   const total = lots.reduce((n, l) => n + Number(l.quantity), 0)
-  return total > 0 ? lots.map(l => ({ ...l, shares: Math.round((Number(l.quantity) * shares) / total) })) : []
+  if (!(total > 0)) return []
+  let left = shares
+  return lots.map((l, i) => {
+    const n = i === lots.length - 1 ? left : Math.floor((Number(l.quantity) * shares) / total)
+    left -= n
+    return { ...l, shares: n }
+  })
 }
 
 // positions、profitLoss 用 unit=Share 查（數量是股數）；details 以 position / profit_loss 的 id 為 key
@@ -26,8 +33,14 @@ export function toRows({ positions = [], positionDetails = {}, profitLoss = [], 
   }
   for (const pl of profitLoss.filter(isCash)) {
     const shares = Number(pl.quantity)
+    const lots = spread(profitDetails[pl.id] ?? [], shares)
+    // 對不到買進的賣出不寫：只有賣出會把平均成本扣掉，本金就算錯了
+    if (!lots.length) {
+      warnings.push(`${pl.code} ${day(pl.date)} 的賣出查不到買進明細，略過`)
+      continue
+    }
     rows.push({ date: day(pl.date), symbol: pl.code, action: 'sell', shares, amount: Math.round(Number(pl.price) * shares), fee: 0 })
-    for (const l of spread(profitDetails[pl.id] ?? [], shares)) {
+    for (const l of lots) {
       rows.push({ date: day(l.date), symbol: pl.code, action: 'buy', shares: l.shares, amount: Math.round(Number(l.price) * l.shares), fee: Number(l.fee) || 0 })
     }
   }

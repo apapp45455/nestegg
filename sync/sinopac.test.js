@@ -35,6 +35,19 @@ test('sinopac: 同一檔分幾次買，依明細的比例分股數；查不到�
   assert.deepEqual(warnings, ['00878 查不到買進日期，略過'])
 })
 
+test('sinopac: 分成三筆時股數合計不會少（33+33+34），賣出查不到買進明細的提醒並略過', () => {
+  const { rows, warnings } = toRows({
+    profitLoss: [
+      { id: 0, code: '2890', quantity: 100, price: 31, date: '2026-05-05', cond: 'Cash' },
+      { id: 1, code: '2330', quantity: 1000, price: 1980, date: '2026-05-06', cond: 'Cash' },
+    ],
+    profitDetails: { 0: [1, 2, 3].map(d => ({ date: `2026-04-0${d}`, quantity: 1, price: 30, fee: 0 })) },
+  })
+  assert.deepEqual(rows.filter(r => r.action === 'buy').map(r => r.shares), [33, 33, 34])
+  assert.equal(rows.filter(r => r.symbol === '2330').length, 0)
+  assert.deepEqual(warnings, ['2330 2026-05-06 的賣出查不到買進明細，略過'])
+})
+
 test('sinopac: 沒有任何資料時是空的', () => {
   assert.deepEqual(toRows({}), { rows: [], warnings: [] })
 })
