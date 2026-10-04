@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
+import { isDate } from '../engine/index.js'
 import { addDays } from '../sync/fubon.js'
 import fubon from './brokers/fubon.js'
 
@@ -130,7 +131,7 @@ async function connect(id, form) {
   const b = broker(id)
   const creds = b.credentials(form)
   const since = String(form.since ?? '')
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期')
+  if (!isDate(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期') // 2025-02-31 這種也擋下
   if (!(await sdkVersion(b))) throw new Error(`請先安裝${b.sdk.label}`)
   if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('這台電腦無法安全加密金鑰，因此不能儲存')
   // 不能共用正在跑的自動同步：那樣會回傳舊金鑰的結果，新輸入的金鑰也不會被存起來

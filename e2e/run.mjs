@@ -73,6 +73,8 @@ async function runAll() {
   await test('富邦同步：用假 SDK 連線，只算現股、寫進帳本、寵物孵化', async () => {
     const status = await page("window.broker.status('fubon')")
     assert.equal(status.ok.sdk, '2.4.0-fake')
+    const badDate = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, since: '2025-02-31' })`)
+    assert.match(badDate.error, /起始日期/) // 不存在的日期，不是一句看不懂的 RangeError
     const res = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
     assert.equal(res.error, undefined, res.error)
     assert.equal(res.ok.added, 11) // 12 筆成交，融資那筆不算
