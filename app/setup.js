@@ -1,7 +1,24 @@
+// 設定精靈：沒有 data-broker 的是券商選擇頁，有的是那家券商的設定頁（欄位名稱就是要送出的欄位）
 const $ = id => document.getElementById(id)
+const id = document.body.dataset.broker
+
+async function renderList() {
+  const { ok: brokers } = await window.broker.list()
+  $('brokers').replaceChildren(...brokers.map(b => {
+    const li = document.createElement('li')
+    const a = Object.assign(document.createElement('a'), { href: `setup-${b.id}.html`, textContent: b.name })
+    const note = Object.assign(document.createElement('span'), { className: 'note' })
+    note.textContent = b.paused ? '⚠️ 自動同步已暫停' : b.connected ? `✓ 已連線 · 上次同步 ${b.lastSync}` : '尚未設定'
+    a.append(note)
+    li.append(a)
+    return li
+  }))
+}
+
 const form = $('connect')
 const result = $('result')
 let certPath = ''
+let name = ''
 
 function show(text, kind = '') {
   result.textContent = text
@@ -9,9 +26,12 @@ function show(text, kind = '') {
 }
 
 async function render() {
-  const { ok: s } = await window.fubon.status()
-  $('sdk-status').textContent = s.sdk ? `✓ 已安裝 v${s.sdk}` : '尚未安裝'
-  $('step-sdk').classList.toggle('done', !!s.sdk)
+  const { ok: s } = await window.broker.status(id)
+  name = s.name
+  if ($('sdk-status')) {
+    $('sdk-status').textContent = s.sdk ? `✓ 已安裝 v${s.sdk}` : '尚未安裝'
+    $('step-sdk').classList.toggle('done', !!s.sdk)
+  }
   $('step-connect').classList.toggle('done', s.connected)
   form.hidden = s.connected
   $('connected').hidden = !s.connected
@@ -41,46 +61,51 @@ function report({ ok, error }) {
   show(`同步完成：${ok.accounts} 個證券帳戶，新增 ${ok.added} 筆紀錄。${warn}`, 'success')
 }
 
-$('install').onclick = () => busy($('install'), '安裝中…', async () => {
-  const { ok, error } = await window.fubon.installSdk()
-  if (error) $('sdk-status').textContent = `⚠️ ${error}`
-  else if (ok) await render()
-})
+function initBrokerPage() {
+  $('install')?.addEventListener('click', () => busy($('install'), '安裝中…', async () => {
+    const { ok, error } = await window.broker.installSdk(id)
+    if (error) $('sdk-status').textContent = `⚠️ ${error}`
+    else if (ok) await render()
+  }))
 
-$('pick-cert').onclick = async () => {
-  const { ok } = await window.fubon.pickCert()
-  if (!ok) return
-  certPath = ok
-  $('cert-name').textContent = ok.split(/[\\/]/).pop()
-}
-
-form.onsubmit = e => {
-  e.preventDefault()
-  busy(form.querySelector('[type=submit]'), '連線中…', async () => {
-    show('正在登入富邦並查詢成交紀錄，第一次可能要一分鐘…')
-    const f = Object.fromEntries(new FormData(form))
-    const res = await window.fubon.connect({ id: f.personalId, apiKey: f.apiKey, certPath, certPass: f.certPass, since: f.since })
-    report(res)
-    if (res.ok) {
-      form.reset()
-      certPath = ''
-      $('cert-name').textContent = '尚未選擇'
-      await render()
-    }
+  $('pick-cert')?.addEventListener('click', async () => {
+    const { ok } = await window.broker.pickCert(id)
+    if (!ok) return
+    certPath = ok
+    $('cert-name').textContent = ok.split(/[\\/]/).pop()
   })
+
+  form.onsubmit = e => {
+    e.preventDefault()
+    busy(form.querySelector('[type=submit]'), '連線中…', async () => {
+      show(`正在登入${name}並查詢成交紀錄，第一次可能要一分鐘…`)
+      const res = await window.broker.connect(id, { ...Object.fromEntries(new FormData(form)), certPath })
+      report(res)
+      if (res.ok) {
+        form.reset()
+        certPath = ''
+        if ($('cert-name')) $('cert-name').textContent = '尚未選擇'
+        await render()
+      }
+    })
+  }
+
+  $('sync').onclick = () => busy($('sync'), '同步中…', async () => {
+    show('正在同步…')
+    report(await window.broker.sync(id))
+    await render()
+  })
+
+  $('disconnect').onclick = async () => {
+    if (!confirm(`確定要清除儲存的${name}金鑰嗎？之後要重新設定才能同步。`)) return
+    const { error } = await window.broker.disconnect(id)
+    if (error) return show(error, 'error') // 例如同步中被擋下：金鑰還在，不能說已清除
+    show('已清除儲存的金鑰。已同步進帳本的紀錄會保留。')
+    await render()
+  }
+
+  render()
 }
 
-$('sync').onclick = () => busy($('sync'), '同步中…', async () => {
-  show('正在同步…')
-  report(await window.fubon.sync())
-  await render()
-})
-
-$('disconnect').onclick = async () => {
-  if (!confirm('確定要清除儲存的富邦金鑰嗎？之後要重新設定才能同步。')) return
-  await window.fubon.disconnect()
-  show('已清除儲存的金鑰。已同步進帳本的紀錄會保留。')
-  await render()
-}
-
-render()
+if (id) initBrokerPage()
+else renderList()

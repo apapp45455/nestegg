@@ -19,6 +19,13 @@ test('parse: 壞資料要報出行號，不默默吞掉', () => {
   assert.throws(() => parseLedger('日期,代號\n'), /第 1 行/)
 })
 
+test('evaluate: 同一天買進又賣出（當沖），賣出列在前面也不會留下幽靈持股', () => {
+  const sell = { date: '2026-01-05', symbol: '0050', action: 'sell', shares: 1000, amount: 51000, fee: 0 }
+  const dayTrade = [sell, buy('2026-01-05', 50_000, 1000)]
+  assert.equal(evaluate(dayTrade, '2026-03-01').size, 1) // 本金 0；賣出被略過時會是 50,000 → Lv2
+  assert.deepEqual(mergeLedger([], dayTrade).map(r => r.action), ['buy', 'sell'])
+})
+
 test('merge: 重複匯入不加資料，同日相同的兩筆都保留', () => {
   const a = [buy('2026-01-06', 9600)]
   assert.equal(mergeLedger(a, a).length, 1)

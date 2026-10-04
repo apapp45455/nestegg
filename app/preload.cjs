@@ -8,13 +8,14 @@ contextBridge.exposeInMainWorld('nestegg', {
   setSolid: solid => ipcRenderer.send('solid', solid),
 })
 
-// 設定精靈用；每個呼叫回傳 { ok } 或 { error }
+// 設定精靈用；第一個參數是券商 id（例如 'fubon'），每個呼叫回傳 { ok } 或 { error }
 const invoke = channel => (...args) => ipcRenderer.invoke(channel, ...args)
-contextBridge.exposeInMainWorld('fubon', {
-  status: invoke('fubon:status'),
-  installSdk: invoke('fubon:install-sdk'),
-  pickCert: invoke('fubon:pick-cert'),
-  connect: invoke('fubon:connect'),
-  sync: invoke('fubon:sync'),
-  disconnect: invoke('fubon:disconnect'),
+contextBridge.exposeInMainWorld('broker', {
+  list: invoke('broker:list'),
+  status: invoke('broker:status'),
+  installSdk: invoke('broker:install-sdk'),
+  pickCert: invoke('broker:pick-cert'),
+  connect: invoke('broker:connect'),
+  sync: invoke('broker:sync'),
+  disconnect: invoke('broker:disconnect'),
 })

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { copyFile, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HEADER, evaluate, mergeLedger, parseLedger, toCsv } from '../engine/index.js'
-import { initFubon, openSetup } from './fubon.js'
+import { initBrokers, openSetup } from './brokers.js'
 import { getMarket, startMarket } from './market.js'
 import { anchorOf, placeAt } from './placement.js'
 
@@ -40,15 +40,21 @@ async function refresh() {
   pet()?.webContents.send('state', state)
 }
 
-// CSV 匯入與券商同步共用：合併去重、寫入前再驗一次，壞資料不會進帳本
-async function addRows(rows) {
-  const existing = await readLedger() // 原帳本壞掉時直接中止，不覆蓋
-  const merged = mergeLedger(existing, rows)
-  // 先寫暫存檔再改名（原子操作）：寫到一半被強制結束或當機，帳本也不會變成空檔
-  await writeFile(`${LEDGER}.tmp`, toCsv(parseLedger(toCsv(merged))))
-  await rename(`${LEDGER}.tmp`, LEDGER)
-  await refresh()
-  return merged.length - existing.length
+// CSV 匯入與券商同步共用：合併去重、寫入前再驗一次，壞資料不會進帳本。
+// 排隊一筆一筆寫：兩家券商同時同步（或同步時匯入 CSV）也不會互相蓋掉
+let writing = Promise.resolve()
+function addRows(rows) {
+  const task = writing.then(async () => {
+    const existing = await readLedger() // 原帳本壞掉時直接中止，不覆蓋
+    const merged = mergeLedger(existing, rows)
+    // 先寫暫存檔再改名（原子操作）：寫到一半被強制結束或當機，帳本也不會變成空檔
+    await writeFile(`${LEDGER}.tmp`, toCsv(parseLedger(toCsv(merged))))
+    await rename(`${LEDGER}.tmp`, LEDGER)
+    await refresh()
+    return merged.length - existing.length
+  })
+  writing = task.catch(() => {}) // 這一筆失敗不影響下一筆
+  return task
 }
 
 async function importCsv() {
@@ -84,7 +90,7 @@ const actions = [
   { label: '匯入交易紀錄 CSV…', click: importCsv },
   { label: '匯出備份…', click: exportBackup },
   { label: '在資料夾中顯示帳本（手動記帳）', click: showLedger },
-  { label: '富邦證券同步…', click: openSetup },
+  { label: '證券帳戶同步…', click: openSetup },
 ]
 const menu = Menu.buildFromTemplate([...actions, { type: 'separator' }, { label: '結束 NestEgg', role: 'quit' }])
 
@@ -109,7 +115,7 @@ app.whenReady().then(() => {
   // 每 10 秒重讀：接住手動編輯帳本，也接住跨日
   setInterval(refresh, 10_000)
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, place)
-  initFubon({ today, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
+  initBrokers({ today, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
   startMarket({ symbols: async () => (await readLedger().catch(() => [])).map(r => r.symbol), onUpdate: refresh })
 })
 

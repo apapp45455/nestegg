@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>連接富邦證券</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body data-broker="fubon">
+<main>
+  <a class="back" href="setup.html">← 選擇其他券商</a>
+  <header>
+    <h1>連接富邦證券</h1>
+    <p>讓寵物每天自動讀取你的成交紀錄。NestEgg 只會<strong>登入與查詢</strong>，程式裡沒有任何下單功能。</p>
+  </header>
+
+  <ol class="steps">
+    <li>
+      <h2>準備富邦證券帳戶</h2>
+      <p>已經有帳戶就直接下一步。還沒有的話可以<a href="https://www.fubon.com/securities/open-now/" target="_blank">線上開戶</a>。</p>
+    </li>
+
+    <li>
+      <h2>申請網頁憑證，匯出 .pfx 檔</h2>
+      <ol>
+        <li>打開富邦的<a href="https://www.fbs.com.tw/TradeAPI/docs/key/" target="_blank">「金鑰管理與憑證匯出」頁</a>，用身分證字號與電子交易密碼登入</li>
+        <li>申請「網頁憑證」，輸入手機或 Email 收到的 OTP；憑證核發後才能匯出</li>
+        <li>匯出憑證存成 <code>.pfx</code> 檔，放在固定的地方（匯出密碼預設是身分證字號）</li>
+      </ol>
+      <p class="note">富邦的憑證管理程式（TCEM.exe）只支援 Windows；Mac 用網頁憑證就可以。</p>
+    </li>
+
+    <li id="step-sdk">
+      <h2>安裝富邦 Node.js SDK</h2>
+      <p>到<a href="https://www.fbs.com.tw/TradeAPI/docs/download/download-sdk" target="_blank">富邦 SDK 下載頁</a>下載 Node.js 版的 zip（不用解壓縮），再選擇它：</p>
+      <div class="row">
+        <button id="install" type="button">選擇下載的 zip…</button>
+        <span id="sdk-status" role="status"></span>
+      </div>
+      <p class="note">SDK 屬於富邦、沒有開放散布的授權條款，所以不隨 NestEgg 打包，要請你自己下載。</p>
+    </li>
+
+    <li>
+      <h2>簽署 API 申請書，當天完成連線測試</h2>
+      <ol>
+        <li>富邦官網 → 客戶服務 → <strong>e櫃台</strong> → 簽署項目 →「應用程式介面(API)服務申請書暨聲明書」→ 前往簽署 → 確認。狀態會變成「待測試」</li>
+        <li><strong>當天 24:00 前</strong>做一次連線測試：在 NestEgg 專案資料夾執行 <code>node tools/fubon-connection-check.cjs</code>，用帳號密碼登入一次（Windows 也可以用富邦的連線測試小幫手）</li>
+        <li>看到「…此訊息表連線測試成功」就完成了，API 會在<strong>隔天 9:00 前</strong>開通</li>
+      </ol>
+      <p class="note">詳見富邦的<a href="https://www.fbs.com.tw/wcm/new_web/operate_manual/operate_manual_01/API-SignSOP_guide.pdf" target="_blank">線上簽署 SOP</a>。</p>
+    </li>
+
+    <li>
+      <h2>建立唯讀的 API Key</h2>
+      <p>回到<a href="https://www.fbs.com.tw/TradeAPI/docs/key/" target="_blank">「金鑰管理與憑證匯出」頁</a>，按「新增金鑰」：</p>
+      <ul>
+        <li><strong>權限只開帳務查詢，不要開交易下單。</strong>就算金鑰外洩，也沒有人能拿它下單。</li>
+        <li>IP 限制：家裡網路的 IP 常會變動，可以先留空。</li>
+        <li>Secret Key 只會顯示一次，建立後馬上複製起來。</li>
+      </ul>
+    </li>
+
+    <li id="step-connect">
+      <h2>連線並同步</h2>
+      <p class="note">API 開通後（簽署隔天 9:00 起）再做這一步。</p>
+      <form id="connect">
+        <label>身分證字號
+          <input name="id" autocomplete="off" spellcheck="false" autocapitalize="characters" required>
+        </label>
+        <label>API Key（Secret Key）
+          <input name="apiKey" type="password" autocomplete="off" required>
+        </label>
+        <div class="field">憑證檔
+          <div class="row">
+            <button id="pick-cert" type="button">選擇 .pfx…</button>
+            <span id="cert-name">尚未選擇</span>
+          </div>
+        </div>
+        <label>憑證密碼
+          <input name="certPass" type="password" autocomplete="off" placeholder="沒改過就留空（預設是身分證字號）">
+        </label>
+        <label>從哪一天開始匯入
+          <input name="since" type="date" required>
+        </label>
+        <div><button type="submit" class="primary">連線並同步</button></div>
+        <p class="note">身分證字號、API Key 與憑證密碼會用系統鑰匙圈加密，只存在這台電腦，用來每天自動同步一次。Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」。</p>
+      </form>
+
+      <div id="connected" hidden>
+        <p id="connected-info"></p>
+        <p id="paused" class="warn" hidden></p>
+        <div class="row">
+          <button id="sync" type="button" class="primary">立即同步</button>
+          <button id="disconnect" type="button">清除儲存的金鑰</button>
+        </div>
+      </div>
+      <p id="result" role="status"></p>
+    </li>
+  </ol>
+
+  <footer class="note">
+    成交紀錄不含手續費，所以本金會略少一點。如果之前已經用 CSV 匯入過同一段期間的紀錄，請擇一來源，以免重複。
+  </footer>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

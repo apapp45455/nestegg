@@ -17,7 +17,7 @@ export const FUR_PCT = 5 // 持股市值相對成本 ±5% 以上 → 毛色發�
 
 const DAY = 864e5
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / DAY)
-const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s)) && new Date(s).toISOString().startsWith(s)
+export const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s)) && new Date(s).toISOString().startsWith(s)
 
 // ponytail: 不支援引號欄位；schema 的欄位本來就不含逗號
 export function parseLedger(text) {
@@ -36,7 +36,9 @@ export function parseLedger(text) {
 }
 
 const toLine = r => [r.date, r.symbol, r.action, r.shares, r.amount, r.fee].join(',')
-const byDate = (a, b) => a.date.localeCompare(b.date)
+// 同一天先算買進、再算股利、最後算賣出：當沖（甚至先賣後買）的賣出才不會因為「那時還沒持股」被略過，留下幽靈持股
+const SAME_DAY = { buy: 0, dividend: 1, sell: 2 }
+const byDate = (a, b) => a.date.localeCompare(b.date) || SAME_DAY[a.action] - SAME_DAY[b.action]
 
 export const toCsv = rows => [HEADER, ...rows.map(toLine)].join('\n') + '\n'
 

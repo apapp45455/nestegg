@@ -92,8 +92,8 @@
 - 沒有後端伺服器，不收集任何使用者資料
 - 會連網的只有兩件事：
   - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**
-  - 「富邦證券同步」（有設定才會），只連富邦自己的伺服器
-- 富邦的身分證字號、API Key 與憑證密碼用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後只存在這台電腦
+  - 「證券帳戶同步」（有設定才會），只連你設定的那家券商自己的伺服器
+- 券商的登入資料（例如富邦的身分證字號、API Key 與憑證密碼）用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後只存在這台電腦
 
 > [!TIP]
 > 右鍵 →「匯出備份…」可以把帳本另存一份。帳本就是普通的 CSV，用任何編輯器都能打開。
@@ -158,7 +158,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 
 ### 富邦證券自動同步
 
-右鍵 →「富邦證券同步…」會打開設定精靈，一步步帶你完成：
+右鍵 →「證券帳戶同步…」→ 選「富邦證券」，設定精靈會一步步帶你完成：
 
 1. 準備富邦證券帳戶
 2. 在富邦「金鑰管理與憑證匯出」頁申請網頁憑證並匯出 `.pfx`（Mac 不能用 TCEM.exe，用網頁憑證即可）
@@ -175,7 +175,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 
 設定好之後，NestEgg 每天會自動同步一次（跟上次同步重疊一週，重複的紀錄會自動合併）。
 
-- 程式只呼叫 API Key 登入、`stock.filledHistory`（成交紀錄查詢）與登出，**沒有任何下單相關的呼叫**，見 [`app/fubon-worker.cjs`](app/fubon-worker.cjs)
+- 程式只呼叫 API Key 登入、`stock.filledHistory`（成交紀錄查詢）與登出，**沒有任何下單相關的呼叫**，見 [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
 - 只算現股與當沖；融資、融券、借券不算本金
 - 富邦的成交紀錄不含手續費，所以本金會略少一點；要精確請改匯入對帳單 CSV（兩種來源擇一，以免重複）
 - 自動同步失敗（例如 API Key 過期）會暫停並在寵物旁提示，不會反覆登入導致帳號被鎖
@@ -189,7 +189,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 flowchart LR
   subgraph local["你的電腦"]
     M["券商對帳單 / 手動記帳"] -->|匯入| L[("ledger.csv")]
-    F["富邦 SDK（獨立程序，只查詢）"] -->|每日同步| L
+    F["券商 SDK（獨立程序，只查詢）"] -->|每日同步| L
     L --> E["寵物引擎（main process）"]
     E -->|state| P["桌面寵物視窗（renderer）"]
   end
@@ -210,7 +210,8 @@ petState = evaluate(ledger, today, market)
 nestegg/
 ├── engine/    # 寵物規則 + CSV 解析（純 JS，無依賴）與測試
 ├── sync/      # 外部資料轉換（純函式）與測試：富邦成交紀錄 → 帳本列、證交所收盤資料 → 行情
-├── app/       # Electron 桌面寵物、右鍵選單、像素圖、富邦設定精靈
+├── app/       # Electron 桌面寵物、右鍵選單、像素圖、券商設定精靈
+│   └── brokers/   # 每家券商一個 adapter
 └── example/   # 範例交易紀錄
 ```
 
@@ -221,7 +222,20 @@ nestegg/
 | 引擎 | JavaScript（ESM）、`node:test` |
 | 桌面 | Electron（透明、無邊框、置頂視窗） |
 | 畫面 | Canvas 16×16 像素圖，CSS 放大 |
-| 券商同步 | 富邦新一代 API Node.js SDK（使用者自行下載），在 Electron utility process 執行 |
+| 券商同步 | 每家券商一個 adapter；富邦新一代 API Node.js SDK（使用者自行下載），在 Electron utility process 執行 |
+
+### 新增一家券商
+
+共用的流程都在 [`app/brokers.js`](app/brokers.js)：安裝 SDK（先複製一份去掉 macOS quarantine 再解壓縮）、金鑰用系統鑰匙圈加密保存、同一時間只跑一個同步、每天自動同步、失敗就暫停、合併去重寫進帳本。每家券商只要寫自己不一樣的地方：
+
+| 檔案 | 內容 |
+|---|---|
+| `sync/<券商>.js` ＋ 測試 | 券商回傳的成交紀錄 → 帳本列（純函式；只算現股，融資融券不算本金） |
+| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
+| `app/setup-<券商>.html` | 設定步驟說明與表單（欄位名稱就是送給 `credentials` 的欄位，共用 `setup.js`、`setup.css`） |
+| `e2e/` | 假的 SDK 或伺服器，讓端到端測試不用真帳戶也能跑 |
+
+再到 `app/brokers.js` 的 `BROKERS` 加一行，券商選擇頁就會出現它。原則：**只呼叫登入與查詢，程式裡不放任何下單呼叫**；能申請「只有查詢權限」的金鑰就請使用者這樣申請。
 
 ## 開發
 
