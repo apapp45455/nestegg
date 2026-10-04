@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: 測試與打包（${{ matrix.os }}）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # npm 11 預設不跑套件的 install script，Electron 執行檔要自己下載
+      - name: 下載 Electron
+        run: node node_modules/electron/install.js
+
+      - name: 單元測試（引擎、同步轉換、視窗位置）
+        run: npm test
+
+      - name: 端到端測試（真的啟動 app，用假富邦 SDK）
+        run: npm run test:e2e
+
+      - name: 打包安裝檔
+        run: npm run dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: installer-${{ matrix.os }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+          retention-days: 7

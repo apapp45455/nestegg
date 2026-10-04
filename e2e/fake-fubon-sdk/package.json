@@ -1,0 +1,1 @@
+{ "name": "fubon-neo", "version": "2.4.0-fake", "description": "端到端測試用的假富邦 SDK：介面同 trade.js 的 CoreSdk，不連網" }

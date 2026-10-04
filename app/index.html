@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>NestEgg</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+    body {
+      display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+      padding-bottom: 8px; box-sizing: border-box;
+      font: 12px/1.5 system-ui, -apple-system, "Microsoft JhengHei", sans-serif;
+    }
+    #bubble {
+      max-width: 190px; margin-bottom: 4px; padding: 6px 10px;
+      background: #fffdf6; color: #3b2a1a; border: 2px solid #3b2a1a; border-radius: 8px;
+      white-space: pre-line; text-align: center;
+    }
+    #sky-row { display: flex; align-items: flex-end; gap: 4px; }
+    #sky { width: 48px; height: 30px; image-rendering: pixelated; }
+    #hunger { font-size: 14px; }
+    #pet { image-rendering: pixelated; cursor: grab; animation: bounce 1.2s ease-in-out infinite; }
+    #pet:active { cursor: grabbing; }
+    #pet.egg, #pet.none { transform-origin: 50% 100%; animation-name: wobble; animation-duration: 2.4s; }
+    /* 後面的規則優先：颱風發抖 > 下雨縮著、餓、難過時慢下來 > 開心跳快一點 */
+    #pet.happy { animation-duration: .8s; }
+    #pet.hungry, #pet.sad { animation-duration: 2.4s; }
+    #pet.rain { animation-duration: 3s; }
+    #pet.typhoon { animation: shiver .25s linear infinite; }
+    @keyframes bounce { 50% { transform: translateY(-4px); } }
+    @keyframes wobble { 25% { transform: rotate(-5deg); } 75% { transform: rotate(5deg); } }
+    @keyframes shiver { 25% { transform: translateX(-1px); } 75% { transform: translateX(1px); } }
+  </style>
+</head>
+<body>
+  <div id="bubble" hidden></div>
+  <div id="sky-row">
+    <canvas id="sky" width="16" height="10" hidden></canvas>
+    <span id="hunger" hidden>🍚?</span>
+  </div>
+  <canvas id="pet" width="16" height="16"></canvas>
+  <script src="pet.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "nestegg",
+  "productName": "NestEgg",
+  "version": "0.1.0",
+  "description": "用你真實的投資紀錄，養一隻會長大的桌面寵物",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "app/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "dist": "electron-builder",
+    "test:e2e": "electron e2e/run.mjs"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "io.github.nestegg",
+    "files": [
+      "app/**",
+      "!app/**/*.test.js",
+      "engine/index.js",
+      "sync/fubon.js",
+      "sync/market.js"
+    ],
+    "electronDist": "node_modules/electron/dist",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.games",
+      "identity": "-",
+      "hardenedRuntime": false
+    }
+  }
+}

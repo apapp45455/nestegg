@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>連接富邦證券</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #fffdf6; --card: #ffffff; --text: #3b2a1a; --muted: #75614b; --line: #ead9bd;
+      --accent: #b8460e; --on-accent: #ffffff; --ok: #2e7d32; --err: #b3261e; --badge: #ffd34d;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1e1913; --card: #29221a; --text: #f4e9d8; --muted: #bba88e; --line: #403427;
+        --accent: #ffa463; --on-accent: #1e1913; --ok: #81c784; --err: #ff8a80;
+      }
+    }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif; }
+    main { max-width: 560px; margin: 0 auto; padding: 24px 20px 32px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    header p { color: var(--muted); margin: 0 0 20px; }
+    .steps { list-style: none; counter-reset: step; padding: 0; margin: 0; display: grid; gap: 12px; }
+    .steps > li {
+      counter-increment: step; position: relative;
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 14px 54px;
+    }
+    .steps > li::before {
+      content: counter(step); position: absolute; left: 16px; top: 15px;
+      width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+      background: var(--badge); color: #3b2a1a; font-weight: 700;
+    }
+    .steps > li.done::before { content: '✓'; background: var(--ok); color: #fff; }
+    h2 { font-size: 15px; margin: 2px 0 6px; }
+    p, ul, ol ol { margin: 6px 0; }
+    ol ol, ul { padding-left: 20px; }
+    a { color: var(--accent); }
+    code { font-size: 13px; }
+    .note { color: var(--muted); font-size: 12.5px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    form { display: grid; gap: 12px; margin-top: 8px; }
+    label, .field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+    input {
+      font: inherit; font-weight: 400; padding: 7px 10px; border-radius: 8px;
+      border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    }
+    button {
+      font: inherit; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+      border: 1px solid var(--line); background: var(--card); color: var(--text);
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+    button:disabled { opacity: .6; cursor: progress; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #cert-name { font-weight: 400; color: var(--muted); word-break: break-all; }
+    #result { white-space: pre-line; margin: 10px 0 0; }
+    #result.error, .warn { color: var(--err); }
+    .warn { white-space: pre-line; }
+    #result.success { color: var(--ok); }
+    footer { margin-top: 16px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>連接富邦證券</h1>
+    <p>讓寵物每天自動讀取你的成交紀錄。NestEgg 只會<strong>登入與查詢</strong>，程式裡沒有任何下單功能。</p>
+  </header>
+
+  <ol class="steps">
+    <li>
+      <h2>準備富邦證券帳戶</h2>
+      <p>已經有帳戶就直接下一步。還沒有的話可以<a href="https://www.fubon.com/securities/open-now/" target="_blank">線上開戶</a>。</p>
+    </li>
+
+    <li>
+      <h2>申請網頁憑證，匯出 .pfx 檔</h2>
+      <ol>
+        <li>打開富邦的<a href="https://www.fbs.com.tw/TradeAPI/docs/key/" target="_blank">「金鑰管理與憑證匯出」頁</a>，用身分證字號與電子交易密碼登入</li>
+        <li>申請「網頁憑證」，輸入手機或 Email 收到的 OTP；憑證核發後才能匯出</li>
+        <li>匯出憑證存成 <code>.pfx</code> 檔，放在固定的地方（匯出密碼預設是身分證字號）</li>
+      </ol>
+      <p class="note">富邦的憑證管理程式（TCEM.exe）只支援 Windows；Mac 用網頁憑證就可以。</p>
+    </li>
+
+    <li id="step-sdk">
+      <h2>安裝富邦 Node.js SDK</h2>
+      <p>到<a href="https://www.fbs.com.tw/TradeAPI/docs/download/download-sdk" target="_blank">富邦 SDK 下載頁</a>下載 Node.js 版的 zip（不用解壓縮），再選擇它：</p>
+      <div class="row">
+        <button id="install" type="button">選擇下載的 zip…</button>
+        <span id="sdk-status" role="status"></span>
+      </div>
+      <p class="note">SDK 屬於富邦、沒有開放散布的授權條款，所以不隨 NestEgg 打包，要請你自己下載。</p>
+    </li>
+
+    <li>
+      <h2>簽署 API 申請書，當天完成連線測試</h2>
+      <ol>
+        <li>富邦官網 → 客戶服務 → <strong>e櫃台</strong> → 簽署項目 →「應用程式介面(API)服務申請書暨聲明書」→ 前往簽署 → 確認。狀態會變成「待測試」</li>
+        <li><strong>當天 24:00 前</strong>做一次連線測試：在 NestEgg 專案資料夾執行 <code>node tools/fubon-connection-check.cjs</code>，用帳號密碼登入一次（Windows 也可以用富邦的連線測試小幫手）</li>
+        <li>看到「…此訊息表連線測試成功」就完成了，API 會在<strong>隔天 9:00 前</strong>開通</li>
+      </ol>
+      <p class="note">詳見富邦的<a href="https://www.fbs.com.tw/wcm/new_web/operate_manual/operate_manual_01/API-SignSOP_guide.pdf" target="_blank">線上簽署 SOP</a>。</p>
+    </li>
+
+    <li>
+      <h2>建立唯讀的 API Key</h2>
+      <p>回到<a href="https://www.fbs.com.tw/TradeAPI/docs/key/" target="_blank">「金鑰管理與憑證匯出」頁</a>，按「新增金鑰」：</p>
+      <ul>
+        <li><strong>權限只開帳務查詢，不要開交易下單。</strong>就算金鑰外洩，也沒有人能拿它下單。</li>
+        <li>IP 限制：家裡網路的 IP 常會變動，可以先留空。</li>
+        <li>Secret Key 只會顯示一次，建立後馬上複製起來。</li>
+      </ul>
+    </li>
+
+    <li id="step-connect">
+      <h2>連線並同步</h2>
+      <p class="note">API 開通後（簽署隔天 9:00 起）再做這一步。</p>
+      <form id="connect">
+        <label>身分證字號
+          <input name="personalId" autocomplete="off" spellcheck="false" autocapitalize="characters" required>
+        </label>
+        <label>API Key（Secret Key）
+          <input name="apiKey" type="password" autocomplete="off" required>
+        </label>
+        <div class="field">憑證檔
+          <div class="row">
+            <button id="pick-cert" type="button">選擇 .pfx…</button>
+            <span id="cert-name">尚未選擇</span>
+          </div>
+        </div>
+        <label>憑證密碼
+          <input name="certPass" type="password" autocomplete="off" placeholder="沒改過就留空（預設是身分證字號）">
+        </label>
+        <label>從哪一天開始匯入
+          <input name="since" type="date" required>
+        </label>
+        <div><button type="submit" class="primary">連線並同步</button></div>
+        <p class="note">身分證字號、API Key 與憑證密碼會用系統鑰匙圈加密，只存在這台電腦，用來每天自動同步一次。Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」。</p>
+      </form>
+
+      <div id="connected" hidden>
+        <p id="connected-info"></p>
+        <p id="paused" class="warn" hidden></p>
+        <div class="row">
+          <button id="sync" type="button" class="primary">立即同步</button>
+          <button id="disconnect" type="button">清除儲存的金鑰</button>
+        </div>
+      </div>
+      <p id="result" role="status"></p>
+    </li>
+  </ol>
+
+  <footer class="note">
+    成交紀錄不含手續費，所以本金會略少一點。如果之前已經用 CSV 匯入過同一段期間的紀錄，請擇一來源，以免重複。
+  </footer>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>
