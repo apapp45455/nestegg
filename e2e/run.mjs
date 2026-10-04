@@ -3,7 +3,7 @@
 // 執行：npm run test:e2e（macOS 與 Windows 都能跑，CI 也跑這支）
 import { app, BrowserWindow, ipcMain, screen } from 'electron'
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -88,6 +88,21 @@ async function runAll() {
     const res = await page('window.fubon.sync()')
     assert.equal(res.ok.added, 0)
     assert.equal(ledgerLines(), 11)
+  })
+
+  await test('富邦同步：同步中按「連線並同步」會被擋下，不會拿到舊結果、也不會蓋掉儲存的金鑰', async () => {
+    const secret = () => JSON.parse(readFileSync(join(DATA, 'fubon', 'config.json'), 'utf8')).secret
+    const before = secret()
+    writeFileSync(join(SDK, 'slow-login'), '')
+    try {
+      const syncing = page('window.fubon.sync()') // 先送出，主程序收到就標記為同步中
+      const res = await page(`window.fubon.connect({ id: 'b123456789', apiKey: 'other-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
+      assert.match(res.error ?? '', /正在同步中/)
+      assert.equal((await syncing).ok?.added, 0)
+    } finally {
+      rmSync(join(SDK, 'slow-login'))
+    }
+    assert.equal(secret(), before)
   })
 
   await test('富邦同步：登入失敗時暫停自動同步、帳本不變', async () => {
