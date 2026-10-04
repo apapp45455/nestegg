@@ -83,17 +83,18 @@ function runWorker(file, payload, cwd) {
 // manual：使用者自己按的（連線、立即同步），快照全空時當作確認
 async function sync(b, creds, from, manual = false) {
   await mkdir(home(b), { recursive: true })
-  const { rows, accounts, warnings } = await b.fetch({
+  const { rows: fresh, accounts, warnings, skipped = [] } = await b.fetch({
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
     runWorker: (file, payload) => runWorker(file, payload, home(b)),
   })
-  if (!b.snapshot) return { added: await ctx.onRows(rows), accounts, warnings }
+  if (!b.snapshot) return { added: await ctx.onRows(fresh), accounts, warnings }
   // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批。
   // rows.json 讀不出來就停下來、帳本不動：快照的數字會變，猜錯上一批會讓本金重複算
   const previous = await readJson(rowsFile(b), []).catch(() => {
     throw needsUser(`${b.name}的同步紀錄檔損壞，為了不重複記帳先停止同步。請刪除 NestEgg 資料夾裡的 ${b.id}/rows.json，再檢查帳本有沒有重複的紀錄`)
   })
-  // 這次什麼都沒查到、上次卻有：多半是券商暫時回空（維護中），不要因此把帳本裡整批清掉
+  // 這次資料不完整的股票（adapter 回報 skipped）：這次的先不用、沿用上一批，暫時缺資料不會讓帳本裡的買進消失
+  const rows = [...fresh.filter(r => !skipped.includes(r.symbol)), ...previous.filter(r => skipped.includes(r.symbol))]
   // 這次什麼都沒查到、上次卻有：可能是券商暫時回空（維護中），也可能真的全賣了。自動同步不猜，停下來請使用者確認
   if (!rows.length && previous.length && !manual) {
     throw needsUser(`${b.name}這次沒有回傳任何持倉或損益，先不更新帳本。如果你已經全部賣出，請按「立即同步」確認`)

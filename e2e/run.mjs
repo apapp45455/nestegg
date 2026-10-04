@@ -253,6 +253,20 @@ async function runAll() {
     assert.equal(ledgerLines(',2884,'), 1)
   })
 
+  await test('永豐同步：某檔暫時查不到明細時沿用上一次的紀錄，帳本裡的買進不會消失', async () => {
+    const details = shioaji.positionDetails[0]
+    shioaji.positionDetails[0] = [] // 2890 的持倉明細暫時沒回來
+    try {
+      const res = await page("window.broker.sync('sinopac')")
+      assert.equal(res.error, undefined, res.error)
+      assert.match(res.ok.warnings.join(), /2890 查不到買進日期/)
+    } finally {
+      shioaji.positionDetails[0] = details
+    }
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
+  })
+
   await test('永豐同步：上次寫完帳本、還沒記好就當機（紀錄檔裡新舊兩批都在），下次同步也不會重複', async () => {
     const rows = JSON.parse(readFileSync(join(DATA, 'sinopac', 'rows.json'), 'utf8'))
     const stale = [{ date: '2026-04-01', symbol: '2890', action: 'buy', shares: 1000, amount: 30000, fee: 0 }]

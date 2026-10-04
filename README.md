@@ -246,7 +246,7 @@ nestegg/
 | 檔案 | 內容 |
 |---|---|
 | `sync/<券商>.js` ＋ 測試 | 券商回傳的成交紀錄 → 帳本列（純函式；只算現股，融資融券不算本金） |
-| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
+| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；快照型券商（查得到的是目前持倉）加 `snapshot: true`，資料不完整的股票放進回傳的 `skipped` 就會沿用上一批；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
 | `app/setup-<券商>.html` | 設定步驟說明與表單（欄位名稱就是送給 `credentials` 的欄位，共用 `setup.js`、`setup.css`） |
 | `e2e/` | 假的 SDK 或伺服器，讓端到端測試不用真帳戶也能跑 |
 

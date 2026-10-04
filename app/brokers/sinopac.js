@@ -125,8 +125,8 @@ export default {
       const profitDetails = {}
       for (const pl of profitLoss) profitDetails[pl.id] = await list('/api/v1/portfolio/profit_loss_detail', { detail_id: pl.id, unit: 'Share' })
 
-      const { rows, warnings } = toRows({ positions, positionDetails, profitLoss, profitDetails })
-      return { rows, accounts: 1, warnings } // ponytail: 只查預設的證券帳戶；有多個證券帳戶的人再加帳戶選擇
+      const { rows, warnings, skipped } = toRows({ positions, positionDetails, profitLoss, profitDetails })
+      return { rows, accounts: 1, warnings, skipped } // ponytail: 只查預設的證券帳戶；有多個證券帳戶的人再加帳戶選擇
     } finally {
       stop()
     }

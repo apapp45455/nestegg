@@ -25,31 +25,33 @@ function spread(lots, shares) {
 
 // positions、profitLoss 用 unit=Share 查（數量是股數）；details 以 position / profit_loss 的 id 為 key
 export function toRows({ positions = [], positionDetails = {}, profitLoss = [], profitDetails = {} }) {
-  const rows = [], warnings = []
+  const rows = [], warnings = [], skipped = new Set()
+  // 資料不完整的股票記下來：快照取代時這檔沿用上一批，不會因為暫時缺資料就從帳本消失
+  const skip = (code, message) => { warnings.push(message); skipped.add(code) }
   const shareCount = n => (Number.isInteger(Number(n)) && Number(n) > 0 ? Number(n) : null) // 股數一定是正整數
   for (const p of positions.filter(p => isCash(p) && name(p.direction) === 'Buy')) {
     if (!shareCount(p.quantity)) {
-      warnings.push(`${p.code} 的持股數看不懂（${p.quantity}），略過`) // 不要讓持股默默消失
+      skip(p.code, `${p.code} 的持股數看不懂（${p.quantity}），略過`) // 不要讓持股默默消失
       continue
     }
     const lots = spread(positionDetails[p.id] ?? [], Number(p.quantity))
-    if (!lots.length) warnings.push(`${p.code} 查不到買進日期，略過`)
+    if (!lots.length) skip(p.code, `${p.code} 查不到買進日期，略過`)
     // 明細的價格單位不一致（有的是每張），一律用持倉的平均成本（每股）
     for (const l of lots) {
-      if (!isDate(day(l.date))) warnings.push(`${p.code} 有一筆持倉明細沒有日期，略過`) // 一筆壞資料不要擋住整次同步
+      if (!isDate(day(l.date))) skip(p.code, `${p.code} 有一筆持倉明細沒有日期，略過`) // 一筆壞資料不要擋住整次同步
       else rows.push({ date: day(l.date), symbol: p.code, action: 'buy', shares: l.shares, amount: Math.round(Number(p.price) * l.shares), fee: 0 })
     }
   }
   for (const pl of profitLoss.filter(isCash)) {
     const shares = shareCount(pl.quantity)
     if (!shares) {
-      warnings.push(`${pl.code} ${day(pl.date)} 的賣出股數看不懂（${pl.quantity}），略過`)
+      skip(pl.code, `${pl.code} ${day(pl.date)} 的賣出股數看不懂（${pl.quantity}），略過`)
       continue
     }
     const lots = spread(profitDetails[pl.id] ?? [], shares)
     // 對不到買進的賣出不寫：只有賣出會把平均成本扣掉，本金就算錯了
     if (!lots.length || ![pl, ...lots].every(x => isDate(day(x.date)))) {
-      warnings.push(`${pl.code} ${day(pl.date)} 的賣出查不到買進明細或日期，略過`)
+      skip(pl.code, `${pl.code} ${day(pl.date)} 的賣出查不到買進明細或日期，略過`)
       continue
     }
     rows.push({ date: day(pl.date), symbol: pl.code, action: 'sell', shares, amount: Math.round(Number(pl.price) * shares), fee: 0 })
@@ -57,5 +59,5 @@ export function toRows({ positions = [], positionDetails = {}, profitLoss = [], 
       rows.push({ date: day(l.date), symbol: pl.code, action: 'buy', shares: l.shares, amount: Math.round(Number(l.price) * l.shares), fee: Number(l.fee) || 0 })
     }
   }
-  return { rows: rows.filter(r => r.shares > 0).sort((a, b) => a.date.localeCompare(b.date)), warnings }
+  return { rows: rows.filter(r => r.shares > 0).sort((a, b) => a.date.localeCompare(b.date)), warnings, skipped: [...skipped] }
 }

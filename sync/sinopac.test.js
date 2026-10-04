@@ -34,6 +34,7 @@ test('sinopac: 同一檔分幾次買，依明細的比例分股數；查不到�
   })
   assert.deepEqual(rows.map(r => [r.date, r.shares, r.amount]), [['2026-01-02', 1000, 150000], ['2026-02-03', 500, 75000]])
   assert.deepEqual(warnings, ['00878 查不到買進日期，略過'])
+  assert.deepEqual(toRows({ positions: [{ id: 6, code: '00878', direction: 'Buy', quantity: 1000, price: 21, cond: 'Cash' }] }).skipped, ['00878'])
 })
 
 test('sinopac: 分成三筆時股數合計不會少（33+33+34），賣出查不到買進明細的提醒並略過', () => {
@@ -80,5 +81,5 @@ test('sinopac: 股數看不懂（NaN、小數、0）的提醒並略過，不會�
 })
 
 test('sinopac: 沒有任何資料時是空的', () => {
-  assert.deepEqual(toRows({}), { rows: [], warnings: [] })
+  assert.deepEqual(toRows({}), { rows: [], warnings: [], skipped: [] })
 })
