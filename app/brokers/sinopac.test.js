@@ -24,7 +24,7 @@ test('sinopac: 開伺服器、等它好、查完關掉；登入失敗與找不�
   writeFileSync(bin, `#!/usr/bin/env node
 const env = process.env
 if (env.SJ_API_KEY === 'bad') { console.error('Login failed: invalid api key'); process.exit(3) }
-if (env.SJ_API_KEY === 'offline') { console.error('connect: network is unreachable'); process.exit(4) }
+if (env.SJ_API_KEY === 'fail') { console.error(env.SJ_SEC_KEY); process.exit(4) } // 用 Secret Key 欄位指定要印的錯誤訊息
 if (process.argv.slice(2).join(' ') !== 'server start --production --no-open' || env.SJ_CA_PATH || env.SJ_PRODUCTION !== 'true') process.exit(9)
 const [host, port] = env.SJ_HTTP_ADDR.split(':')
 require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).listen(+port, host)
@@ -39,7 +39,10 @@ require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).liste
     await assert.rejects(fetch(`${url}/api/v1/health`)) // 查完就關掉
     // 認證錯誤 → 要使用者處理（自動同步暫停）；斷網之類 → 一般錯誤（下個小時再試）
     await assert.rejects(sinopac.server(bin, { ...creds, apiKey: 'bad' }, dir), e => /登入失敗（代碼 3）：Login failed/.test(e.message) && e.needsUser === true)
-    await assert.rejects(sinopac.server(bin, { ...creds, apiKey: 'offline' }, dir), e => /啟動失敗.*（代碼 4）：connect: network/.test(e.message) && !e.needsUser)
+    for (const message of ['connect: network is unreachable', 'permission denied: ~/.shioaji', 'login timeout', 'token refresh failed: connection reset']) {
+      await assert.rejects(sinopac.server(bin, { apiKey: 'fail', secretKey: message }, dir), e => /啟動失敗.*（代碼 4）/.test(e.message) && !e.needsUser, message)
+    }
+    await assert.rejects(sinopac.server(bin, { apiKey: 'fail', secretKey: 'Error: invalid api key' }, dir), e => e.needsUser === true)
     await assert.rejects(sinopac.server(join(dir, 'missing'), creds, dir), /無法執行 Shioaji/)
   } finally {
     delete process.env.SJ_CA_PATH

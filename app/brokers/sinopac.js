@@ -13,8 +13,9 @@ const ARCH = { arm64: 'aarch64', x64: 'x86_64' }[process.arch]
 const wait = ms => new Promise(r => setTimeout(r, ms))
 // 要使用者處理才會好的錯誤（登入失敗、權限不對、模擬環境）：共用流程會因此暫停自動同步，免得帳號被鎖
 const needsUser = message => Object.assign(new Error(message), { needsUser: true })
-// Shioaji 的錯誤訊息看起來是金鑰／認證問題才算登入失敗；斷網、維護、當掉這類下個小時再試
-const AUTH_ERROR = /auth|login|api[ _-]?key|secret|token|unauthori[sz]ed|forbidden|permission|\b40[13]\b|認證|登入|金鑰|權限/i
+// 錯誤訊息明確是認證失敗才算登入失敗（自動同步暫停）；比對不到、或提到逾時／網路／維護的，一律當暫時問題下個小時再試
+const AUTH_ERROR = /invalid (api[ _-]?key|secret|token|credential)|unauthori[sz]ed|authentication failed|login failed|\b40[13]\b|金鑰(錯誤|無效)|認證失敗|登入失敗/i
+const TRANSIENT = /time(d)? ?out|network|unreachable|connection|maintenance|維護|逾時|斷線/i
 
 const freePort = () => new Promise((resolve, reject) => {
   const srv = createServer().once('error', reject).listen(0, '127.0.0.1', () => {
@@ -81,7 +82,7 @@ export default {
       child.once('exit', code => {
         dead = true
         const detail = `（代碼 ${code}）：${log.trim() || '沒有訊息'}`
-        reject(AUTH_ERROR.test(log) ? needsUser(`Shioaji 登入失敗${detail}`) : new Error(`Shioaji 啟動失敗，下個小時再試${detail}`))
+        reject(AUTH_ERROR.test(log) && !TRANSIENT.test(log) ? needsUser(`Shioaji 登入失敗${detail}`) : new Error(`Shioaji 啟動失敗，下個小時再試${detail}`))
       })
     })
     exited.catch(() => {}) // 查完後正常關掉也會走到這裡
