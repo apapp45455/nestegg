@@ -198,6 +198,27 @@ async function runAll() {
     assert.equal(ledgerLines('2026-06-01,2890,sell,1000,35000,0'), 1)
   })
 
+  await test('兩家券商同時同步：各自拿到自己的結果，帳本兩邊的紀錄都在', async () => {
+    rmSync(join(SDK, 'fail-login'))
+    writeFileSync(join(SDK, 'slow-login'), '') // 富邦卡 2 秒，永豐趁這時候同步
+    shioaji.positions.push({ id: 1, code: '2884', direction: 'Buy', quantity: 1000, price: 30, cond: 'Cash' })
+    shioaji.positionDetails[1] = [{ date: '2026-07-01', quantity: 1 }]
+    try {
+      const fubon = page("window.broker.sync('fubon')")
+      const sinopacRes = await page("window.broker.sync('sinopac')")
+      assert.equal(sinopacRes.error, undefined, sinopacRes.error)
+      assert.equal(sinopacRes.ok.added, 1) // 不是富邦那次的結果
+      const fubonRes = await fubon
+      assert.equal(fubonRes.error, undefined, fubonRes.error)
+      assert.equal(fubonRes.ok.added, 0)
+    } finally {
+      rmSync(join(SDK, 'slow-login'))
+      writeFileSync(join(SDK, 'fail-login'), '') // 恢復前面測試的狀態
+    }
+    assert.equal(ledgerLines(',2884,'), 1)
+    assert.equal(ledgerLines(',0050,'), 11)
+  })
+
   await test('永豐同步：Shioaji 跑在模擬環境時拒絕匯入', async () => {
     shioaji.simulation = true
     const res = await page("window.broker.sync('sinopac')")
