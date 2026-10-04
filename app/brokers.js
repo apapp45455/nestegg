@@ -11,7 +11,8 @@ import fubon from './brokers/fubon.js'
 
 const BROKERS = Object.fromEntries([fubon].map(b => [b.id, b]))
 const run = promisify(execFile)
-let ctx, setupWin, running = null
+let ctx, setupWin
+const running = new Map() // 券商 id → 正在跑的同步
 
 const broker = id => BROKERS[id] ?? (() => { throw new Error(`不認識的券商：${id}`) })()
 // 每家券商一個資料夾：userData/<id>/{config.json, package/}
@@ -25,7 +26,7 @@ const writeConfig = async (b, cfg) => {
   await writeFile(`${configFile(b)}.tmp`, JSON.stringify(cfg, null, 2)) // 同帳本：先寫暫存檔再改名
   await rename(`${configFile(b)}.tmp`, configFile(b))
 }
-const sdkVersion = b => (b.sdk ? b.sdk.version(sdkDir(b)) : 'none')
+const sdkVersion = b => b.sdk.version(sdkDir(b))
 
 // 金鑰用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後才落地。
 // 用非同步版：macOS 詢問鑰匙圈權限時，同步版會卡住整個主程序，寵物連拖都拖不動。
@@ -43,8 +44,15 @@ async function installSdk(b, file) {
     await writeFile(archive, await readFile(file))
     await run('tar', ['-xf', archive, '-C', tmp]) // macOS 與 Windows 10+ 內建的 tar（bsdtar）都能解 zip 與 tgz
     const dir = await b.sdk.unpack(tmp, run)
-    await rm(sdkDir(b), { recursive: true, force: true })
-    await rename(dir, sdkDir(b))
+    // 先把舊的移開、新的換上，再刪舊的：不會有「刪了一半」的 SDK；換不上就放回舊的
+    const old = join(tmp, 'old')
+    if (existsSync(sdkDir(b))) await rename(sdkDir(b), old)
+    try {
+      await rename(dir, sdkDir(b))
+    } catch (e) {
+      if (existsSync(old)) await rename(old, sdkDir(b))
+      throw e
+    }
     return sdkVersion(b)
   } finally {
     await rm(tmp, { recursive: true, force: true })
@@ -72,14 +80,18 @@ async function sync(b, creds, from) {
   return { added, accounts, warnings }
 }
 
-// 同一時間只跑一個同步（不分券商），避免手動與自動同步重複登入
-const exclusive = fn => (running ??= fn().finally(() => (running = null)))
-// 清除金鑰、換 SDK 不能跟同步同時做：同步結束時會把讀到的舊設定寫回去，也可能載入換到一半的 SDK
-const idle = () => {
-  if (running) throw new Error('正在同步中，請等一下再試')
+// 同一家券商同一時間只跑一個同步：手動與自動同步撞在一起時共用同一次結果，不重複登入。
+// 不同券商可以同時同步（寫帳本由 main.js 排隊，不會互相蓋掉）
+function exclusive(id, fn) {
+  if (!running.has(id)) running.set(id, fn().finally(() => running.delete(id)))
+  return running.get(id)
+}
+// 清除金鑰、換 SDK 不能跟那家的同步同時做：同步結束時會把讀到的舊設定寫回去，也可能載入換到一半的 SDK
+const idle = (id, message = '正在同步中，請等一下再試') => {
+  if (running.has(id)) throw new Error(message)
 }
 
-const syncSaved = id => exclusive(async () => {
+const syncSaved = id => exclusive(id, async () => {
   const b = broker(id)
   const cfg = await readConfig(b)
   if (!cfg) throw new Error(`尚未連接${b.name}`)
@@ -115,8 +127,8 @@ async function connect(id, form) {
   if (!(await sdkVersion(b))) throw new Error(`請先安裝${b.sdk.label}`)
   if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('這台電腦無法安全加密金鑰，因此不能儲存')
   // 不能共用正在跑的自動同步：那樣會回傳舊金鑰的結果，新輸入的金鑰也不會被存起來
-  if (running) throw new Error('正在同步中，請等一下再按「連線並同步」')
-  return exclusive(async () => {
+  idle(id, '正在同步中，請等一下再按「連線並同步」')
+  return exclusive(id, async () => {
     const result = await sync(b, creds, since) // 先確定登入與查詢成功，才把金鑰存起來
     await writeConfig(b, { secret: await seal(creds), since, lastSync: ctx.today() })
     return result
@@ -124,8 +136,9 @@ async function connect(id, form) {
 }
 
 async function status(b) {
-  const cfg = await readConfig(b)
-  return { id: b.id, name: b.name, sdk: await sdkVersion(b), connected: !!cfg, since: cfg?.since, lastSync: cfg?.lastSync, paused: cfg?.paused, today: ctx.today() }
+  // 設定檔壞掉時照樣列出來，讓使用者能清除後重設（不要讓整個券商清單打不開）
+  const cfg = await readConfig(b).catch(() => ({ paused: '設定檔損壞，請按「清除儲存的金鑰」後重新連線' }))
+  return { id: b.id, name: b.name, sdk: await Promise.resolve().then(() => sdkVersion(b)).catch(() => null), connected: !!cfg, since: cfg?.since, lastSync: cfg?.lastSync, paused: cfg?.paused, today: ctx.today() }
 }
 
 async function pickFile({ title, name, extensions }) {
@@ -150,14 +163,14 @@ export function initBrokers(context) {
     const b = broker(id)
     const file = await pickFile({ title: `選擇下載的${b.sdk.label}`, name: b.sdk.label, extensions: ['zip', 'tgz', 'gz'] })
     if (!file) return null
-    idle() // 選檔案的時候可能剛好開始自動同步，選完再檢查
+    idle(id) // 選檔案的時候可能剛好開始自動同步，選完再檢查
     return installSdk(b, file)
   })
   handle('broker:pick-cert', id => pickFile(broker(id).cert))
   handle('broker:connect', connect)
   handle('broker:sync', syncSaved)
   handle('broker:disconnect', id => {
-    idle()
+    idle(id)
     return rm(configFile(broker(id)), { force: true })
   })
   setTimeout(autoSync, 5_000)

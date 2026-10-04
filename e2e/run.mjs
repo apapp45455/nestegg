@@ -149,12 +149,11 @@ async function runAll() {
     assert.ok(b.x + b.width <= a.x + a.width && b.y + b.height <= a.y + a.height, JSON.stringify({ b, a }))
   })
 
-  await test('安裝 SDK：不是富邦的、版本太舊的都拒絕，原本裝好的不受影響', async () => {
+  await test('安裝 SDK：不是富邦的、版本太舊的都拒絕，原本裝好的不受影響；新版換上去照樣能同步', async () => {
     const pack = (name, pkg) => {
       const dir = join(DATA, name)
-      mkdirSync(join(dir, 'package'), { recursive: true })
+      cpSync(join(import.meta.dirname, 'fake-fubon-sdk'), join(dir, 'package'), { recursive: true })
       writeFileSync(join(dir, 'package', 'package.json'), JSON.stringify(pkg))
-      writeFileSync(join(dir, 'package', 'trade.js'), '')
       execFileSync('tar', ['-czf', join(DATA, `${name}.tgz`), '-C', dir, 'package'])
       return join(DATA, `${name}.tgz`)
     }
@@ -165,6 +164,10 @@ async function runAll() {
     assert.match((await install(pack('other', { name: 'other-sdk', version: '9.9.9' }))).error, /不是富邦/)
     assert.match((await install(pack('old', { name: 'fubon-neo', version: '2.0.0' }))).error, /太舊/)
     assert.equal((await page("window.broker.status('fubon')")).ok.sdk, '2.4.0-fake')
+    rmSync(join(SDK, 'fail-login')) // 換上的新版不帶舊資料夾裡的檔案
+    assert.equal((await install(pack('new', { name: 'fubon-neo', version: '2.5.0-fake' }))).ok, '2.5.0-fake')
+    assert.equal(existsSync(join(SDK, 'fail-login')), false)
+    assert.equal((await page("window.broker.sync('fubon')")).error, undefined)
   })
 
   await test('設定精靈：列出券商與狀態，點進去是那家券商的設定頁', async () => {
@@ -172,11 +175,9 @@ async function runAll() {
     const setup = () => windowAt('/setup.html')
     const list = await until('document.getElementById("brokers").innerText', v => v, '券商清單', 15_000, setup)
     assert.match(list, /富邦證券/)
-    assert.match(list, /自動同步已暫停/) // 上一個測試讓登入失敗
     await page('document.querySelector(".brokers a").click()', setup())
     const fubonPage = () => windowAt('/setup-fubon.html')
-    assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.4\.0-fake/)
-    assert.match(await page('document.getElementById("paused").textContent', fubonPage()), /登入失敗/)
+    assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.5\.0-fake/)
     fubonPage().destroy()
   })
 
@@ -191,6 +192,17 @@ async function runAll() {
     }
     assert.equal((await page("window.broker.disconnect('fubon')")).error, undefined)
     assert.equal(existsSync(join(DATA, 'fubon', 'config.json')), false)
+    assert.equal((await page("window.broker.status('fubon')")).ok.connected, false)
+  })
+
+  await test('設定檔或 SDK 壞掉：券商清單照樣打得開，提示清除後重設', async () => {
+    writeFileSync(join(DATA, 'fubon', 'config.json'), '{ 壞掉')
+    writeFileSync(join(SDK, 'package.json'), '')
+    const { ok } = await page('window.broker.list()')
+    const fubon = ok.find(b => b.id === 'fubon')
+    assert.match(fubon.paused, /設定檔損壞/)
+    assert.equal(fubon.sdk, null) // 顯示「尚未安裝」，重新安裝就好
+    assert.equal((await page("window.broker.disconnect('fubon')")).error, undefined)
     assert.equal((await page("window.broker.status('fubon')")).ok.connected, false)
   })
 
