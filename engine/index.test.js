@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HEADER, parseLedger, mergeLedger, toCsv, evaluate } from './index.js'
+import { HEADER, parseLedger, mergeLedger, removeRows, toCsv, evaluate } from './index.js'
 
 const buy = (date, amount, shares = 100, symbol = '0050') => ({ date, symbol, action: 'buy', shares, amount, fee: 0 })
 
@@ -31,6 +31,12 @@ test('merge: 重複匯入不加資料，同日相同的兩筆都保留', () => {
   assert.equal(mergeLedger(a, a).length, 1)
   const merged = mergeLedger(a, [buy('2026-01-06', 9600), buy('2026-01-06', 9600), buy('2026-01-01', 1)])
   assert.deepEqual(merged.map(r => r.date), ['2026-01-01', '2026-01-06', '2026-01-06'])
+})
+
+test('removeRows: 只拿掉上次同步的那幾筆，同日相同的另一筆與手動記帳都保留', () => {
+  const manual = buy('2026-01-02', 500)
+  const ledger = [buy('2026-01-06', 9600), buy('2026-01-06', 9600), manual]
+  assert.deepEqual(removeRows(ledger, [buy('2026-01-06', 9600), buy('2026-03-01', 1)]), [buy('2026-01-06', 9600), manual])
 })
 
 test('evaluate: 沒有買入 → 還沒有蛋', () => {

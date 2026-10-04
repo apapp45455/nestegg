@@ -1,9 +1,10 @@
 // 端到端測試：真的啟動 NestEgg（主程序、寵物視窗、富邦同步的 utility process），
-// 用暫存資料夾、假富邦 SDK 與預先放好的行情快取，不連網、不碰你的真實資料。
+// 用暫存資料夾、假富邦 SDK、假 Shioaji 伺服器與預先放好的行情快取，不連網、不碰你的真實資料。
 // 執行：npm run test:e2e（macOS 與 Windows 都能跑，CI 也跑這支）
 import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +22,29 @@ mkdirSync(SDK, { recursive: true })
 cpSync(join(import.meta.dirname, 'fake-fubon-sdk'), SDK, { recursive: true })
 const CERT = join(DATA, 'test-cert.pfx')
 writeFileSync(CERT, 'not a real certificate')
+// 永豐：假裝 Shioaji 命令列程式已經裝好；真正開伺服器的那一步換成下面的假伺服器
+const SHIOAJI = join(DATA, 'sinopac', 'package')
+mkdirSync(SHIOAJI, { recursive: true })
+writeFileSync(join(SHIOAJI, process.platform === 'win32' ? 'shioaji.exe' : 'shioaji'), '')
+writeFileSync(join(SHIOAJI, 'version.txt'), '1.7.7-fake')
+
+// 假的 Shioaji 本機 API 伺服器：回應帳務查詢，並記下被呼叫了哪些路徑
+const shioaji = { simulation: false, calls: [], positions: [], positionDetails: {}, profitLoss: [], profitDetails: {} }
+const fakeShioaji = createServer((req, res) => {
+  let body = ''
+  req.on('data', d => (body += d)).on('end', () => {
+    const json = body ? JSON.parse(body) : {}
+    shioaji.calls.push({ path: req.url, ...json })
+    const reply = {
+      '/api/v1/info': { simulation: shioaji.simulation },
+      '/api/v1/portfolio/position_unit': shioaji.positions,
+      '/api/v1/portfolio/position_detail': shioaji.positionDetails[json.detail_id] ?? [],
+      '/api/v1/portfolio/profit_loss': shioaji.profitLoss,
+      '/api/v1/portfolio/profit_loss_detail': shioaji.profitDetails[json.detail_id] ?? [],
+    }[req.url]
+    res.writeHead(reply ? 200 : 404, { 'Content-Type': 'application/json' }).end(JSON.stringify(reply ?? { message: 'not found' }))
+  })
+}).listen(0, '127.0.0.1')
 
 // 整個過程中只要主程序丟出未處理的錯誤就算失敗（使用者看到的就是「JavaScript error」對話框）
 const crashes = []
@@ -29,7 +53,13 @@ process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
 await import('../app/main.js')
-const { openSetup } = await import('../app/brokers.js')
+const { openSetup, syncSaved } = await import('../app/brokers.js') // syncSaved 直接呼叫＝自動同步那條路
+const { default: sinopac } = await import('../app/brokers/sinopac.js')
+let shioajiStops = 0
+sinopac.server = async (bin, creds) => {
+  shioaji.started = { bin, creds }
+  return { url: `http://127.0.0.1:${fakeShioaji.address().port}`, stop: () => shioajiStops++ }
+}
 // 注意：ESM 入口不能在最上層 await app.whenReady()（ready 要等入口跑完才會觸發），所以包成函式
 app.whenReady().then(runAll)
 
@@ -44,9 +74,9 @@ async function until(code, ok, label, ms = 15_000, w = win) {
   }
   throw new Error(`等不到：${label}`)
 }
-const ledgerLines = () => {
+const ledgerLines = (symbol = '') => {
   const f = join(DATA, 'ledger.csv')
-  return existsSync(f) ? readFileSync(f, 'utf8').trim().split('\n').length - 1 : 0
+  return existsSync(f) ? readFileSync(f, 'utf8').trim().split('\n').slice(1).filter(l => l.includes(symbol)).length : 0
 }
 
 async function runAll() {
@@ -136,6 +166,141 @@ async function runAll() {
     assert.equal(ledgerLines(), 11)
   })
 
+  await test('永豐同步：用持倉明細拼回買進紀錄，只算現股，只呼叫帳務查詢', async () => {
+    // 2890 分兩次各買 1000 股（明細以張計），2330 是融資不算
+    shioaji.positions = [
+      { id: 0, code: '2890', direction: 'Buy', quantity: 2000, price: 30, cond: 'Cash' },
+      { id: 1, code: '2330', direction: 'Buy', quantity: 1000, price: 1000, cond: 'MarginTrading' },
+    ]
+    shioaji.positionDetails = { 0: [{ date: '2026-04-01', quantity: 1 }, { date: '2026-04-15', quantity: 1 }], 1: [{ date: '2026-05-01', quantity: 1 }] }
+    const res = await page(`window.broker.connect('sinopac', { apiKey: 'sj-key', secretKey: 'sj-secret', since: '2025-10-01' })`)
+    assert.equal(res.error, undefined, res.error)
+    assert.equal(res.ok.added, 2)
+    assert.equal(ledgerLines(',2890,buy,1000,30000,'), 2)
+    assert.equal(ledgerLines(',2330,'), 0)
+    assert.deepEqual(shioaji.started.creds, { apiKey: 'sj-key', secretKey: 'sj-secret' })
+    assert.equal(shioajiStops, 1) // 查完就關掉伺服器
+    assert.ok(shioaji.calls.every(c => c.path === '/api/v1/info' || (c.path.startsWith('/api/v1/portfolio/') && c.account_type === 'S')), JSON.stringify(shioaji.calls))
+    assert.equal(shioaji.calls.find(c => c.path.endsWith('/profit_loss')).begin_date, '2025-10-01')
+    assert.doesNotMatch(readFileSync(join(DATA, 'sinopac', 'config.json'), 'utf8'), /sj-key|sj-secret/)
+  })
+
+  await test('永豐同步：賣掉一部分後，整批換成新的紀錄，不會重複', async () => {
+    shioaji.positions = [{ id: 0, code: '2890', direction: 'Buy', quantity: 1000, price: 30, cond: 'Cash' }]
+    shioaji.positionDetails = { 0: [{ date: '2026-04-15', quantity: 1 }] }
+    shioaji.profitLoss = [{ id: 0, code: '2890', quantity: 1000, price: 35, date: '2026-06-01', cond: 'Cash' }]
+    shioaji.profitDetails = { 0: [{ date: '2026-04-01', quantity: 1, price: 30, fee: 42, cond: 'Cash' }] }
+    const res = await page("window.broker.sync('sinopac')")
+    assert.equal(res.error, undefined, res.error)
+    assert.equal(res.ok.added, 2) // 新的賣出與帶手續費的買進；沒變的那筆不算（以前會算成淨增 1 筆）
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines('2026-04-01,2890,buy,1000,30000,42'), 1)
+    assert.equal(ledgerLines('2026-04-15,2890,buy,1000,30000,0'), 1)
+    assert.equal(ledgerLines('2026-06-01,2890,sell,1000,35000,0'), 1)
+  })
+
+  await test('兩家券商同時同步：各自拿到自己的結果，帳本兩邊的紀錄都在', async () => {
+    rmSync(join(SDK, 'fail-login'))
+    writeFileSync(join(SDK, 'slow-login'), '') // 富邦卡 2 秒，永豐趁這時候同步
+    shioaji.positions.push({ id: 1, code: '2884', direction: 'Buy', quantity: 1000, price: 30, cond: 'Cash' })
+    shioaji.positionDetails[1] = [{ date: '2026-07-01', quantity: 1 }]
+    try {
+      const fubon = page("window.broker.sync('fubon')")
+      const sinopacRes = await page("window.broker.sync('sinopac')")
+      assert.equal(sinopacRes.error, undefined, sinopacRes.error)
+      assert.equal(sinopacRes.ok.added, 1) // 不是富邦那次的結果
+      const fubonRes = await fubon
+      assert.equal(fubonRes.error, undefined, fubonRes.error)
+      assert.equal(fubonRes.ok.added, 0)
+    } finally {
+      rmSync(join(SDK, 'slow-login'))
+      writeFileSync(join(SDK, 'fail-login'), '') // 恢復前面測試的狀態
+    }
+    assert.equal(ledgerLines(',2884,'), 1)
+    assert.equal(ledgerLines(',0050,'), 11)
+  })
+
+  await test('永豐同步：上次同步的紀錄檔壞掉就停下來、帳本不動（不猜，免得本金重複）', async () => {
+    const file = join(DATA, 'sinopac', 'rows.json')
+    const saved = readFileSync(file, 'utf8')
+    writeFileSync(file, '[{ 壞掉')
+    try {
+      const res = await page("window.broker.sync('sinopac')")
+      assert.match(res.error, /紀錄檔損壞/)
+      assert.match((await page("window.broker.status('sinopac')")).ok.paused, /紀錄檔損壞/)
+    } finally {
+      writeFileSync(file, saved)
+    }
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
+  })
+
+  await test('永豐同步：自動同步遇到全空就停下來請你確認、帳本不動；按「立即同步」確認後才清掉', async () => {
+    const { positions, profitLoss } = shioaji
+    Object.assign(shioaji, { positions: [], profitLoss: [] })
+    try {
+      await assert.rejects(syncSaved('sinopac'), /如果你已經全部賣出/)
+      assert.equal(ledgerLines(',2890,'), 3)
+      assert.match((await page("window.broker.status('sinopac')")).ok.paused, /全部賣出/)
+      const res = await page("window.broker.sync('sinopac')") // 使用者按「立即同步」＝確認
+      assert.equal(res.error, undefined, res.error)
+      assert.equal(ledgerLines(',2890,') + ledgerLines(',2884,'), 0)
+    } finally {
+      Object.assign(shioaji, { positions, profitLoss })
+    }
+    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // 資料回來，給後面的測試用
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
+  })
+
+  await test('永豐同步：某檔暫時查不到明細時沿用上一次的紀錄，帳本裡的買進不會消失', async () => {
+    const details = shioaji.positionDetails[0]
+    shioaji.positionDetails[0] = [] // 2890 的持倉明細暫時沒回來
+    try {
+      const res = await page("window.broker.sync('sinopac')")
+      assert.equal(res.error, undefined, res.error)
+      assert.match(res.ok.warnings.join(), /2890 查不到買進日期/)
+    } finally {
+      shioaji.positionDetails[0] = details
+    }
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
+  })
+
+  await test('永豐同步：你自己記過的相同紀錄不歸同步管，永豐不再回傳時也不會被刪掉', async () => {
+    const mine = '2026-08-01,2412,buy,1000,120000,0'
+    writeFileSync(join(DATA, 'ledger.csv'), readFileSync(join(DATA, 'ledger.csv'), 'utf8').trimEnd() + `\n${mine}\n`) // 手動記帳
+    shioaji.positions.push({ id: 9, code: '2412', direction: 'Buy', quantity: 1000, price: 120, cond: 'Cash' })
+    shioaji.positionDetails[9] = [{ date: '2026-08-01', quantity: 1 }]
+    try {
+      assert.equal((await page("window.broker.sync('sinopac')")).ok.added, 0) // 跟手動記的那筆一樣，去重
+      assert.equal(ledgerLines(mine), 1)
+    } finally {
+      shioaji.positions.pop()
+      delete shioaji.positionDetails[9]
+    }
+    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // 永豐不再回傳 2412
+    assert.equal(ledgerLines(mine), 1)
+    assert.equal(ledgerLines(',2890,'), 3)
+  })
+
+  await test('永豐同步：上次寫完帳本、還沒記好就當機（紀錄檔裡新舊兩批都在），下次同步也不會重複', async () => {
+    const rows = JSON.parse(readFileSync(join(DATA, 'sinopac', 'rows.json'), 'utf8'))
+    const stale = [{ date: '2026-04-01', symbol: '2890', action: 'buy', shares: 1000, amount: 30000, fee: 0 }]
+    writeFileSync(join(DATA, 'sinopac', 'rows.json'), JSON.stringify([...stale, ...rows]))
+    const res = await page("window.broker.sync('sinopac')")
+    assert.equal(res.error, undefined, res.error)
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
+  })
+
+  await test('永豐同步：Shioaji 跑在模擬環境時拒絕匯入', async () => {
+    shioaji.simulation = true
+    const res = await page("window.broker.sync('sinopac')")
+    assert.match(res.error, /模擬環境/)
+    assert.equal(ledgerLines(',2890,'), 3)
+  })
+
   await test('行情：天氣、心情、毛色跟著快取的行情走', async () => {
     // 成本每股約 69，收盤 112 → 毛色發亮；漲 2/110 ≈ +1.8% → 開心；加權 +1.2% → 晴天
     const s = await until('state', v => v?.weather, '行情狀態')
@@ -195,6 +360,8 @@ async function runAll() {
     const setup = () => windowAt('/setup.html')
     const list = await until('document.getElementById("brokers").innerText', v => v, '券商清單', 15_000, setup)
     assert.match(list, /富邦證券/)
+    assert.match(list, /永豐金證券/)
+    assert.match(list, /自動同步已暫停/) // 永豐：前面測試的模擬環境錯誤
     await page('document.querySelector(".brokers a").click()', setup())
     const fubonPage = () => windowAt('/setup-fubon.html')
     assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.5\.0-fake/)

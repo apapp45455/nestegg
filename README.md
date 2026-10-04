@@ -92,7 +92,7 @@
 - 沒有後端伺服器，不收集任何使用者資料
 - 會連網的只有兩件事：
   - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**
-  - 「證券帳戶同步」（有設定才會），只連你設定的那家券商自己的伺服器
+  - 「證券帳戶同步」（有設定才會），只連你設定的那家券商自己的伺服器（永豐是透過官方程式在本機開的暫時伺服器）
 - 券商的登入資料（例如富邦的身分證字號、API Key 與憑證密碼）用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後只存在這台電腦
 
 > [!TIP]
@@ -181,6 +181,21 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 - 自動同步失敗（例如 API Key 過期）會暫停並在寵物旁提示，不會反覆登入導致帳號被鎖
 - Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」
 
+### 永豐金證券自動同步（實驗性）
+
+右鍵 →「證券帳戶同步…」→ 選「永豐金證券」：
+
+1. 準備永豐金證券帳戶
+2. 到永豐理財網 [API 管理頁](https://www.sinotrade.com.tw/newweb/PythonAPIKey/) 新增 API Key，勾「行情／資料」「帳務」「正式環境」，**不要勾「交易」**
+3. 到 [Shioaji 的 GitHub 下載頁](https://github.com/Sinotrade/Shioaji/releases/latest) 下載自己作業系統的命令列程式壓縮檔，交給精靈安裝
+4. 輸入 API Key 與 Secret Key，連線並同步
+
+只查帳務不用 CA 憑證，也不用簽署 API 約定書或做模擬下單測試。
+
+- 同步時用官方的 `shioaji` 命令列程式在本機開一個暫時的 API 伺服器（只聽 127.0.0.1、隨機埠、查完就關），只呼叫帳務查詢，見 [`app/brokers/sinopac.js`](app/brokers/sinopac.js)。沒有提供憑證，就算金鑰有交易權限也不能下單
+- 永豐的 API 查不到過去的成交紀錄，所以用「目前持倉＋買進明細」與「已實現損益＋對到的買進明細」拼回買賣紀錄（[`sync/sinopac.js`](sync/sinopac.js)）；還沒賣的股票用持倉平均成本計算。持倉是快照，每次同步會整批取代上次寫進帳本的那批
+- 照永豐公開文件與範例資料寫成，**還沒用真實帳戶驗證過**
+
 ---
 
 ## 架構
@@ -231,7 +246,7 @@ nestegg/
 | 檔案 | 內容 |
 |---|---|
 | `sync/<券商>.js` ＋ 測試 | 券商回傳的成交紀錄 → 帳本列（純函式；只算現股，融資融券不算本金） |
-| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
+| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；快照型券商（查得到的是目前持倉）加 `snapshot: true`，資料不完整的股票放進回傳的 `skipped` 就會沿用上一批；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
 | `app/setup-<券商>.html` | 設定步驟說明與表單（欄位名稱就是送給 `credentials` 的欄位，共用 `setup.js`、`setup.css`） |
 | `e2e/` | 假的 SDK 或伺服器，讓端到端測試不用真帳戶也能跑 |
 

@@ -42,17 +42,22 @@ const byDate = (a, b) => a.date.localeCompare(b.date) || SAME_DAY[a.action] - SA
 
 export const toCsv = rows => [HEADER, ...rows.map(toLine)].join('\n') + '\n'
 
-// 合併匯入：重複匯入同一份檔案不會多出資料，同一天兩筆一樣的買入也不會被吃掉
-export function mergeLedger(existing, incoming) {
+// rows 裡沒被 against 對到的那些（多重集合：同一筆出現兩次就要對到兩次）
+function unmatched(rows, against) {
   const count = new Map()
-  for (const r of existing) count.set(toLine(r), (count.get(toLine(r)) ?? 0) + 1)
-  const added = incoming.filter(r => {
+  for (const r of against) count.set(toLine(r), (count.get(toLine(r)) ?? 0) + 1)
+  return rows.filter(r => {
     const n = count.get(toLine(r)) ?? 0
     count.set(toLine(r), n - 1)
     return n <= 0
   })
-  return [...existing, ...added].sort(byDate)
 }
+
+// 合併匯入：重複匯入同一份檔案不會多出資料，同一天兩筆一樣的買入也不會被吃掉
+export const mergeLedger = (existing, incoming) => [...existing, ...unmatched(incoming, existing)].sort(byDate)
+
+// 拿掉上次同步寫進來的那批（每筆只拿掉一次；已經被手動刪掉的就略過）
+export const removeRows = (ledger, rows) => unmatched(ledger, rows)
 
 // market（可省略）：{ date, indexChange: 加權指數漲跌 %, prices: { 代號: { close, change } } }
 function marketMood(holdings, market) {

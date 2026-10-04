@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>連接永豐金證券</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body data-broker="sinopac">
+<main>
+  <a class="back" href="setup.html">← 選擇其他券商</a>
+  <header>
+    <h1>連接永豐金證券</h1>
+    <p>透過永豐官方的 Shioaji API 讀取你的持倉與已實現損益。NestEgg 只會<strong>登入與查詢帳務</strong>，程式裡沒有任何下單功能。</p>
+  </header>
+
+  <ol class="steps">
+    <li>
+      <h2>準備永豐金證券帳戶</h2>
+      <p>已經有帳戶就直接下一步。還沒有的話請看永豐的<a href="https://sinotrade.github.io/tutor/prepare/open_account/" target="_blank">開戶說明</a>（交割帳戶要用永豐銀行）。</p>
+    </li>
+
+    <li>
+      <h2>建立唯讀的 API Key</h2>
+      <p>到永豐理財網的 <a href="https://www.sinotrade.com.tw/newweb/PythonAPIKey/" target="_blank">API 管理頁</a> 按「新增 API KEY」，通過手機或 Email 驗證後設定權限：</p>
+      <ul>
+        <li>勾<strong>「行情／資料」「帳務」「正式環境」</strong></li>
+        <li><strong>不要勾「交易」。</strong>就算金鑰外洩，也沒有人能拿它下單。</li>
+        <li>IP 限制：家裡網路的 IP 常會變動，先不要設定，不然 IP 一變就連不上。</li>
+        <li>Secret Key 只會顯示一次，建立後馬上存起來。</li>
+      </ul>
+      <p class="note">只查帳務不用下載 CA 憑證，也不用簽署 API 約定書、做模擬下單測試（那些是下單才需要的）。</p>
+    </li>
+
+    <li id="step-sdk">
+      <h2>安裝 Shioaji 命令列程式</h2>
+      <p>到 <a href="https://github.com/Sinotrade/Shioaji/releases/latest" target="_blank">Shioaji 的 GitHub 下載頁</a>下載檔名有 <code>macOS</code>（Apple 晶片選 <code>aarch64</code>、Intel 選 <code>x86_64</code>）或 <code>Windows</code> 的壓縮檔，不用解壓縮，再選擇它：</p>
+      <div class="row">
+        <button id="install" type="button">選擇下載的壓縮檔…</button>
+        <span id="sdk-status" role="status"></span>
+      </div>
+      <p class="note">這是永豐官方的程式。NestEgg 同步時會用它在本機開一個暫時的 API 伺服器，只開在這台電腦上，查完就關掉。</p>
+    </li>
+
+    <li id="step-connect">
+      <h2>連線並同步</h2>
+      <form id="connect">
+        <label>API Key
+          <input name="apiKey" type="password" autocomplete="off" required>
+        </label>
+        <label>Secret Key
+          <input name="secretKey" type="password" autocomplete="off" required>
+        </label>
+        <label>已實現損益從哪一天開始匯入
+          <input name="since" type="date" required>
+        </label>
+        <div><button type="submit" class="primary">連線並同步</button></div>
+        <p class="note">API Key 與 Secret Key 會用系統鑰匙圈加密，只存在這台電腦，用來每天自動同步一次。Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」。</p>
+      </form>
+
+      <div id="connected" hidden>
+        <p id="connected-info"></p>
+        <p id="paused" class="warn" hidden></p>
+        <div class="row">
+          <button id="sync" type="button" class="primary">立即同步</button>
+          <button id="disconnect" type="button">清除儲存的金鑰</button>
+        </div>
+      </div>
+      <p id="result" role="status"></p>
+    </li>
+  </ol>
+
+  <footer class="note">
+    永豐的 API 查不到過去的成交紀錄，所以 NestEgg 用「目前持倉」加上「已實現損益」拼回買賣紀錄：還沒賣的股票用持倉的平均成本計算，每次同步會整批更新。
+    這個串接是照永豐公開的文件寫的，還沒用真實帳戶驗證過；同步結果怪怪的請回報。
+  </footer>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

@@ -9,8 +9,9 @@ import { promisify } from 'node:util'
 import { isDate } from '../engine/index.js'
 import { addDays } from '../sync/fubon.js'
 import fubon from './brokers/fubon.js'
+import sinopac from './brokers/sinopac.js'
 
-const BROKERS = Object.fromEntries([fubon].map(b => [b.id, b]))
+const BROKERS = Object.fromEntries([fubon, sinopac].map(b => [b.id, b]))
 const run = promisify(execFile)
 // Windows 指定系統內建的 bsdtar：PATH 上先找到 Git for Windows 的 GNU tar 會把 C:\ 當成遠端主機
 const TAR = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar'
@@ -23,12 +24,17 @@ const broker = id => BROKERS[id] ?? (() => { throw new Error(`不認識的券商
 const home = b => join(app.getPath('userData'), b.id)
 const sdkDir = b => join(home(b), 'package')
 const configFile = b => join(home(b), 'config.json')
+const rowsFile = b => join(home(b), 'rows.json') // 快照型券商：上次同步寫進帳本的那批
 
-const readConfig = async b => (existsSync(configFile(b)) ? JSON.parse(await readFile(configFile(b), 'utf8')) : null)
+const readJson = async (file, fallback) => (existsSync(file) ? JSON.parse(await readFile(file, 'utf8')) : fallback)
+const writeJson = async (file, data) => {
+  await writeFile(`${file}.tmp`, JSON.stringify(data, null, 2)) // 同帳本：先寫暫存檔再改名
+  await rename(`${file}.tmp`, file)
+}
+const readConfig = b => readJson(configFile(b), null)
 const writeConfig = async (b, cfg) => {
   await mkdir(home(b), { recursive: true })
-  await writeFile(`${configFile(b)}.tmp`, JSON.stringify(cfg, null, 2)) // 同帳本：先寫暫存檔再改名
-  await rename(`${configFile(b)}.tmp`, configFile(b))
+  await writeJson(configFile(b), cfg)
 }
 const sdkVersion = b => b.sdk.version(sdkDir(b))
 
@@ -74,13 +80,29 @@ function runWorker(file, payload, cwd) {
   })
 }
 
-async function sync(b, creds, from) {
+// manual：使用者自己按的（連線、立即同步），快照全空時當作確認
+async function sync(b, creds, from, manual = false) {
   await mkdir(home(b), { recursive: true })
-  const { rows, accounts, warnings } = await b.fetch({
+  const { rows: fresh, accounts, warnings, skipped = [] } = await b.fetch({
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
     runWorker: (file, payload) => runWorker(file, payload, home(b)),
   })
-  const added = await ctx.onRows(rows)
+  if (!b.snapshot) return { added: (await ctx.onRows(fresh)).added, accounts, warnings }
+  // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批。
+  // rows.json 讀不出來就停下來、帳本不動：快照的數字會變，猜錯上一批會讓本金重複算
+  const previous = await readJson(rowsFile(b), []).catch(() => {
+    throw needsUser(`${b.name}的同步紀錄檔損壞，為了不重複記帳先停止同步。請刪除 NestEgg 資料夾裡的 ${b.id}/rows.json，再檢查帳本有沒有重複的紀錄`)
+  })
+  // 這次資料不完整的股票（adapter 回報 skipped）：這次的先不用、沿用上一批，暫時缺資料不會讓帳本裡的買進消失
+  const rows = [...fresh.filter(r => !skipped.includes(r.symbol)), ...previous.filter(r => skipped.includes(r.symbol))]
+  // 這次什麼都沒查到、上次卻有：可能是券商暫時回空（維護中），也可能真的全賣了。自動同步不猜，停下來請使用者確認
+  if (!rows.length && previous.length && !manual) {
+    throw needsUser(`${b.name}這次沒有回傳任何持倉或損益，先不更新帳本。如果你已經全部賣出，請按「立即同步」確認`)
+  }
+  // 寫帳本前先記下新舊兩批：寫到一半當機或下一步寫不進去，下次同步兩批都會先拿掉，不會留下重複
+  await writeJson(rowsFile(b), [...previous, ...rows])
+  const { added, inserted } = await ctx.onRows(rows, previous)
+  await writeJson(rowsFile(b), inserted) // 只記同步自己寫進去的列；你自己記過的相同列不歸同步管
   return { added, accounts, warnings }
 }
 
@@ -102,7 +124,7 @@ function idle(id, message = '正在同步或安裝中，請等一下再試') {
   if (running.has(id)) throw new Error(message)
 }
 
-const syncSaved = id => exclusive(id, 'sync', async () => {
+export const syncSaved = (id, manual = false) => exclusive(id, 'sync', async () => {
   const b = broker(id)
   const cfg = await readConfig(b)
   if (!cfg) throw new Error(`尚未連接${b.name}`)
@@ -110,7 +132,7 @@ const syncSaved = id => exclusive(id, 'sync', async () => {
   let result
   try {
     const creds = await unseal(cfg.secret).catch(e => { throw needsUser(`讀不到儲存的金鑰：${e.message}`) })
-    result = await sync(b, creds, from < cfg.since ? cfg.since : from)
+    result = await sync(b, creds, b.snapshot || from < cfg.since ? cfg.since : from, manual)
   } catch (e) {
     // 登入失敗、讀不到金鑰這種要使用者處理的才暫停自動同步（反覆登入失敗可能讓帳號被鎖）；
     // 斷網、逾時這類暫時的問題不暫停，下個小時再試。寫不進暫停狀態也不要蓋掉原本的錯誤
@@ -146,7 +168,7 @@ async function connect(id, form) {
   // 不能共用正在跑的自動同步：那樣會回傳舊金鑰的結果，新輸入的金鑰也不會被存起來
   idle(id, '正在同步中，請等一下再按「連線並同步」')
   return exclusive(id, 'sync', async () => {
-    const result = await sync(b, creds, since) // 先確定登入與查詢成功，才把金鑰存起來
+    const result = await sync(b, creds, since, true) // 先確定登入與查詢成功，才把金鑰存起來
     await writeConfig(b, { secret: await seal(creds), since, lastSync: ctx.today() })
     return result
   })
@@ -184,7 +206,7 @@ export function initBrokers(context) {
   })
   handle('broker:pick-cert', id => pickFile(broker(id).cert))
   handle('broker:connect', connect)
-  handle('broker:sync', syncSaved)
+  handle('broker:sync', id => syncSaved(id, true))
   handle('broker:disconnect', id => {
     idle(id)
     return rm(configFile(broker(id)), { force: true })
