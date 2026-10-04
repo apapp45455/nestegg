@@ -89,7 +89,9 @@ async function sync(b, creds, from) {
   if (!b.snapshot) return { added: await ctx.onRows(rows), accounts, warnings }
   // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批
   // ponytail: 帳本與 rows.json 分兩次寫，剛好在中間當機會讓下次同步多出一批；要根治得把來源記進帳本
-  const added = await ctx.onRows(rows, await readJson(rowsFile(b), []))
+  // rows.json 讀不出來（手動改壞）就當作沒有：一樣的紀錄合併時會去重，不要因此擋住同步
+  const previous = await readJson(rowsFile(b), []).catch(() => [])
+  const added = await ctx.onRows(rows, previous)
   await writeJson(rowsFile(b), rows)
   return { added, accounts, warnings }
 }

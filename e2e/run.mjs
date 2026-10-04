@@ -220,6 +220,15 @@ async function runAll() {
     assert.equal(ledgerLines(',0050,'), 11)
   })
 
+  await test('永豐同步：上次同步的紀錄檔壞掉也照樣同步，不會多出重複的', async () => {
+    writeFileSync(join(DATA, 'sinopac', 'rows.json'), '[{ 壞掉')
+    const res = await page("window.broker.sync('sinopac')")
+    assert.equal(res.error, undefined, res.error)
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
+    assert.equal(JSON.parse(readFileSync(join(DATA, 'sinopac', 'rows.json'), 'utf8')).length, 4)
+  })
+
   await test('永豐同步：Shioaji 跑在模擬環境時拒絕匯入', async () => {
     shioaji.simulation = true
     const res = await page("window.broker.sync('sinopac')")
