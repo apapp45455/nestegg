@@ -100,14 +100,16 @@ const syncSaved = id => exclusive(id, 'sync', async () => {
   const cfg = await readConfig(b)
   if (!cfg) throw new Error(`尚未連接${b.name}`)
   const from = addDays(cfg.lastSync, -7) // 重疊一週，補抓上次同步後才成交的紀錄（重複的會被合併掉）
+  let result
   try {
-    const result = await sync(b, await unseal(cfg.secret), from < cfg.since ? cfg.since : from)
-    await writeConfig(b, { ...cfg, lastSync: ctx.today(), paused: undefined })
-    return result
+    result = await sync(b, await unseal(cfg.secret), from < cfg.since ? cfg.since : from)
   } catch (e) {
-    await writeConfig(b, { ...cfg, paused: e.message }) // 暫停自動同步：反覆登入失敗可能讓帳號被鎖
+    // 只有同步本身失敗才暫停自動同步（反覆登入失敗可能讓帳號被鎖）；寫不進暫停狀態也不要蓋掉原本的錯誤
+    await writeConfig(b, { ...cfg, paused: e.message }).catch(() => {})
     throw e
   }
+  await writeConfig(b, { ...cfg, lastSync: ctx.today(), paused: undefined })
+  return result
 })
 
 async function autoSync() {

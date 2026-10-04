@@ -184,6 +184,19 @@ async function runAll() {
     await page('document.querySelector(".brokers a").click()', setup())
     const fubonPage = () => windowAt('/setup-fubon.html')
     assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.5\.0-fake/)
+    // 同步中按「清除儲存的金鑰」：畫面要說被擋下，不能說已清除
+    await page('window.confirm = () => true; 0', fubonPage())
+    writeFileSync(join(SDK, 'slow-login'), '')
+    try {
+      const syncing = page("window.broker.sync('fubon')")
+      await page('document.getElementById("disconnect").click()', fubonPage())
+      const result = await until('document.getElementById("result").className + " " + document.getElementById("result").textContent', v => /error/.test(v), '清除被擋下的訊息', 15_000, fubonPage)
+      assert.match(result, /正在同步/)
+      await syncing
+    } finally {
+      rmSync(join(SDK, 'slow-login'))
+    }
+    assert.equal((await page("window.broker.status('fubon')")).ok.connected, true)
     fubonPage().destroy()
   })
 

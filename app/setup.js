@@ -98,7 +98,8 @@ function initBrokerPage() {
 
   $('disconnect').onclick = async () => {
     if (!confirm(`確定要清除儲存的${name}金鑰嗎？之後要重新設定才能同步。`)) return
-    await window.broker.disconnect(id)
+    const { error } = await window.broker.disconnect(id)
+    if (error) return show(error, 'error') // 例如同步中被擋下：金鑰還在，不能說已清除
     show('已清除儲存的金鑰。已同步進帳本的紀錄會保留。')
     await render()
   }
