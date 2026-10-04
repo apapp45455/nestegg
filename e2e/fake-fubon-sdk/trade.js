@@ -1,5 +1,5 @@
 // 端到端測試用的假富邦 SDK：介面跟真的 trade.js 的 CoreSdk 一樣，但不連網，回傳固定的成交紀錄。
-// 測試可以在這個資料夾放 fail-login 檔案，模擬登入失敗。
+// 測試可以在這個資料夾放 fail-login 檔案模擬登入失敗、放 slow-login 讓登入卡 2 秒（模擬同步中）。
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -15,6 +15,7 @@ const FILLS = [
 class CoreSdk {
   constructor(version) { this.version = version }
   apikeyLogin(id, apiKey, certPath) {
+    if (fs.existsSync(path.join(__dirname, 'slow-login'))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000)
     if (fs.existsSync(path.join(__dirname, 'fail-login'))) return { isSuccess: false, message: 'API Key 無效（假的）' }
     if (!fs.existsSync(certPath)) return { isSuccess: false, message: '找不到憑證' }
     return { isSuccess: true, data: [
