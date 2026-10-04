@@ -26,7 +26,12 @@ function spread(lots, shares) {
 // positions、profitLoss 用 unit=Share 查（數量是股數）；details 以 position / profit_loss 的 id 為 key
 export function toRows({ positions = [], positionDetails = {}, profitLoss = [], profitDetails = {} }) {
   const rows = [], warnings = []
+  const shareCount = n => (Number.isInteger(Number(n)) && Number(n) > 0 ? Number(n) : null) // 股數一定是正整數
   for (const p of positions.filter(p => isCash(p) && name(p.direction) === 'Buy')) {
+    if (!shareCount(p.quantity)) {
+      warnings.push(`${p.code} 的持股數看不懂（${p.quantity}），略過`) // 不要讓持股默默消失
+      continue
+    }
     const lots = spread(positionDetails[p.id] ?? [], Number(p.quantity))
     if (!lots.length) warnings.push(`${p.code} 查不到買進日期，略過`)
     // 明細的價格單位不一致（有的是每張），一律用持倉的平均成本（每股）
@@ -36,7 +41,11 @@ export function toRows({ positions = [], positionDetails = {}, profitLoss = [], 
     }
   }
   for (const pl of profitLoss.filter(isCash)) {
-    const shares = Number(pl.quantity)
+    const shares = shareCount(pl.quantity)
+    if (!shares) {
+      warnings.push(`${pl.code} ${day(pl.date)} 的賣出股數看不懂（${pl.quantity}），略過`)
+      continue
+    }
     const lots = spread(profitDetails[pl.id] ?? [], shares)
     // 對不到買進的賣出不寫：只有賣出會把平均成本扣掉，本金就算錯了
     if (!lots.length || ![pl, ...lots].every(x => isDate(day(x.date)))) {

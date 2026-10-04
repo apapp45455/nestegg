@@ -80,7 +80,8 @@ function runWorker(file, payload, cwd) {
   })
 }
 
-async function sync(b, creds, from) {
+// manual：使用者自己按的（連線、立即同步），快照全空時當作確認
+async function sync(b, creds, from, manual = false) {
   await mkdir(home(b), { recursive: true })
   const { rows, accounts, warnings } = await b.fetch({
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
@@ -93,7 +94,10 @@ async function sync(b, creds, from) {
     throw needsUser(`${b.name}的同步紀錄檔損壞，為了不重複記帳先停止同步。請刪除 NestEgg 資料夾裡的 ${b.id}/rows.json，再檢查帳本有沒有重複的紀錄`)
   })
   // 這次什麼都沒查到、上次卻有：多半是券商暫時回空（維護中），不要因此把帳本裡整批清掉
-  if (!rows.length && previous.length) throw new Error(`${b.name}這次沒有回傳任何持倉或損益，先不更新帳本，下個小時再試`)
+  // 這次什麼都沒查到、上次卻有：可能是券商暫時回空（維護中），也可能真的全賣了。自動同步不猜，停下來請使用者確認
+  if (!rows.length && previous.length && !manual) {
+    throw needsUser(`${b.name}這次沒有回傳任何持倉或損益，先不更新帳本。如果你已經全部賣出，請按「立即同步」確認`)
+  }
   // 寫帳本前先記下新舊兩批：寫到一半當機或下一步寫不進去，下次同步兩批都會先拿掉，不會留下重複
   await writeJson(rowsFile(b), [...previous, ...rows])
   const added = await ctx.onRows(rows, previous)
@@ -119,7 +123,7 @@ function idle(id, message = '正在同步或安裝中，請等一下再試') {
   if (running.has(id)) throw new Error(message)
 }
 
-const syncSaved = id => exclusive(id, 'sync', async () => {
+export const syncSaved = (id, manual = false) => exclusive(id, 'sync', async () => {
   const b = broker(id)
   const cfg = await readConfig(b)
   if (!cfg) throw new Error(`尚未連接${b.name}`)
@@ -127,7 +131,7 @@ const syncSaved = id => exclusive(id, 'sync', async () => {
   let result
   try {
     const creds = await unseal(cfg.secret).catch(e => { throw needsUser(`讀不到儲存的金鑰：${e.message}`) })
-    result = await sync(b, creds, b.snapshot || from < cfg.since ? cfg.since : from)
+    result = await sync(b, creds, b.snapshot || from < cfg.since ? cfg.since : from, manual)
   } catch (e) {
     // 登入失敗、讀不到金鑰這種要使用者處理的才暫停自動同步（反覆登入失敗可能讓帳號被鎖）；
     // 斷網、逾時這類暫時的問題不暫停，下個小時再試。寫不進暫停狀態也不要蓋掉原本的錯誤
@@ -163,7 +167,7 @@ async function connect(id, form) {
   // 不能共用正在跑的自動同步：那樣會回傳舊金鑰的結果，新輸入的金鑰也不會被存起來
   idle(id, '正在同步中，請等一下再按「連線並同步」')
   return exclusive(id, 'sync', async () => {
-    const result = await sync(b, creds, since) // 先確定登入與查詢成功，才把金鑰存起來
+    const result = await sync(b, creds, since, true) // 先確定登入與查詢成功，才把金鑰存起來
     await writeConfig(b, { secret: await seal(creds), since, lastSync: ctx.today() })
     return result
   })
@@ -201,7 +205,7 @@ export function initBrokers(context) {
   })
   handle('broker:pick-cert', id => pickFile(broker(id).cert))
   handle('broker:connect', connect)
-  handle('broker:sync', syncSaved)
+  handle('broker:sync', id => syncSaved(id, true))
   handle('broker:disconnect', id => {
     idle(id)
     return rm(configFile(broker(id)), { force: true })

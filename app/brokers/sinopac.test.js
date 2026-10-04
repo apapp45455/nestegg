@@ -1,7 +1,7 @@
 // 永豐 adapter 真正開 Shioaji 伺服器的那一段（e2e 換成假伺服器，測不到這裡）
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sinopac, { serverEnv } from './sinopac.js'
@@ -10,7 +10,8 @@ const creds = { apiKey: 'k', secretKey: 's' }
 
 test('sinopac: 使用者環境裡的 SJ_ 變數（例如憑證）不會帶進 Shioaji', () => {
   const env = serverEnv(creds, 1234, '/data', { PATH: '/bin', SJ_CA_PATH: '/me.pfx', sj_ca_passwd: 'x', SJ_API_KEY: 'mine' })
-  assert.deepEqual(Object.keys(env).filter(k => /^SJ_/i.test(k)).sort(), ['SJ_API_KEY', 'SJ_HOME_PATH', 'SJ_HTTP_ADDR', 'SJ_PRODUCTION', 'SJ_SEC_KEY', 'SJ_UDS_DISABLE'])
+  assert.deepEqual(Object.keys(env).filter(k => /^SJ_/i.test(k)).sort(), ['SJ_API_KEY', 'SJ_HOME_PATH', 'SJ_HTTP_ADDR', 'SJ_HTTP_CORS', 'SJ_PRODUCTION', 'SJ_SEC_KEY', 'SJ_UDS_DISABLE'])
+  assert.equal(env.SJ_HTTP_CORS, 'false')
   assert.equal(env.SJ_API_KEY, 'k')
   assert.equal(env.SJ_HTTP_ADDR, '127.0.0.1:1234')
   assert.equal(env.PATH, '/bin')
@@ -40,4 +41,23 @@ require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).liste
   } finally {
     delete process.env.SJ_CA_PATH
   }
+})
+
+// 安裝：下載的壓縮檔解開後的資料夾 → 檢查作業系統、CPU、有沒有執行檔，記下版本
+test('sinopac: 安裝時認得對的壓縮檔，拒絕別的作業系統、別的 CPU 與不是 Shioaji 的檔案', async () => {
+  const OS = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[process.platform]
+  const ARCH = { arm64: 'aarch64', x64: 'x86_64' }[process.arch]
+  const BIN = process.platform === 'win32' ? 'shioaji.exe' : 'shioaji'
+  const unpacked = files => {
+    const dir = mkdtempSync(join(tmpdir(), 'nestegg-unpack-'))
+    for (const f of files) writeFileSync(join(dir, f), '')
+    return dir
+  }
+  const ok = await sinopac.sdk.unpack(unpacked([`shioaji-v1.7.7-${OS}-${ARCH}.tar.gz`, BIN]))
+  assert.equal(await sinopac.sdk.version(ok), '1.7.7')
+  assert.equal(readFileSync(join(ok, 'version.txt'), 'utf8'), '1.7.7')
+  const otherOs = OS === 'Windows' ? 'macOS' : 'Windows'
+  await assert.rejects(sinopac.sdk.unpack(unpacked([`shioaji-v1.7.7-${otherOs}-x86_64.zip`, 'shioaji.exe', 'shioaji'])), /其他作業系統/)
+  if (ARCH === 'x86_64') await assert.rejects(sinopac.sdk.unpack(unpacked([`shioaji-v1.7.7-${OS}-aarch64.tar.gz`, BIN])), /Apple 晶片／ARM/)
+  await assert.rejects(sinopac.sdk.unpack(unpacked(['fubon-neo.zip'])), /不是 Shioaji/)
 })

@@ -53,7 +53,7 @@ process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
 await import('../app/main.js')
-const { openSetup } = await import('../app/brokers.js')
+const { openSetup, syncSaved } = await import('../app/brokers.js') // syncSaved 直接呼叫＝自動同步那條路
 const { default: sinopac } = await import('../app/brokers/sinopac.js')
 let shioajiStops = 0
 sinopac.server = async (bin, creds) => {
@@ -235,15 +235,20 @@ async function runAll() {
     assert.equal(ledgerLines(',2884,'), 1)
   })
 
-  await test('永豐同步：券商暫時回傳空的，不會把帳本裡整批清掉', async () => {
+  await test('永豐同步：自動同步遇到全空就停下來請你確認、帳本不動；按「立即同步」確認後才清掉', async () => {
     const { positions, profitLoss } = shioaji
     Object.assign(shioaji, { positions: [], profitLoss: [] })
     try {
-      const res = await page("window.broker.sync('sinopac')")
-      assert.match(res.error, /沒有回傳任何持倉/)
+      await assert.rejects(syncSaved('sinopac'), /如果你已經全部賣出/)
+      assert.equal(ledgerLines(',2890,'), 3)
+      assert.match((await page("window.broker.status('sinopac')")).ok.paused, /全部賣出/)
+      const res = await page("window.broker.sync('sinopac')") // 使用者按「立即同步」＝確認
+      assert.equal(res.error, undefined, res.error)
+      assert.equal(ledgerLines(',2890,') + ledgerLines(',2884,'), 0)
     } finally {
       Object.assign(shioaji, { positions, profitLoss })
     }
+    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // 資料回來，給後面的測試用
     assert.equal(ledgerLines(',2890,'), 3)
     assert.equal(ledgerLines(',2884,'), 1)
   })

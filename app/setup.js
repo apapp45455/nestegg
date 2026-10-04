@@ -57,7 +57,7 @@ async function busy(button, label, fn) {
 
 function report({ ok, error }) {
   if (error) return show(error, 'error')
-  const warn = ok.warnings.length ? `\n有 ${ok.warnings.length} 段期間查詢失敗，例如 ${ok.warnings[0]}` : ''
+  const warn = ok.warnings.length ? `\n有 ${ok.warnings.length} 則提醒：\n${ok.warnings.join('\n')}` : '' // 富邦是查詢失敗的期間，永豐是略過的紀錄
   show(`同步完成：${ok.accounts} 個證券帳戶，新增 ${ok.added} 筆紀錄。${warn}`, 'success')
 }
 

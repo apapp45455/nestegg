@@ -9,6 +9,7 @@ import { toRows } from '../../sync/sinopac.js'
 
 const BIN = process.platform === 'win32' ? 'shioaji.exe' : 'shioaji'
 const OS = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[process.platform]
+const ARCH = { arm64: 'aarch64', x64: 'x86_64' }[process.arch]
 const wait = ms => new Promise(r => setTimeout(r, ms))
 // 要使用者處理才會好的錯誤（登入失敗、權限不對、模擬環境）：共用流程會因此暫停自動同步，免得帳號被鎖
 const needsUser = message => Object.assign(new Error(message), { needsUser: true })
@@ -29,6 +30,7 @@ export const serverEnv = (creds, port, home, env = process.env) => ({
   SJ_PRODUCTION: 'true',
   SJ_HTTP_ADDR: `127.0.0.1:${port}`,
   SJ_UDS_DISABLE: 'true',
+  SJ_HTTP_CORS: 'false', // 不讓瀏覽器裡的網頁呼叫這個暫時的伺服器
   SJ_HOME_PATH: join(home, 'shioaji'), // 登入權杖、商品檔放在 NestEgg 的資料夾，不跟你自己的 Shioaji 混在一起
 })
 
@@ -44,6 +46,8 @@ export default {
       const files = await readdir(tmp)
       const archive = files.find(f => /^shioaji-v\d/.test(f)) ?? ''
       if (archive && !archive.includes(`-${OS}-`)) throw new Error(`這是給其他作業系統的版本，請下載檔名有「${OS}」的那個`)
+      // Apple 晶片可以跑 x86_64 版（Rosetta），反過來不行
+      if (archive.includes('-aarch64') && ARCH !== 'aarch64') throw new Error(`這是 Apple 晶片／ARM 的版本，這台電腦請下載檔名有「${ARCH}」的那個`)
       if (!files.includes(BIN)) throw new Error(`這不是 Shioaji 命令列程式的壓縮檔（裡面找不到 ${BIN}）`)
       const dir = join(tmp, 'cli')
       await mkdir(dir)
@@ -78,7 +82,8 @@ export default {
     const url = `http://127.0.0.1:${port}`
     const ready = (async () => {
       for (const end = Date.now() + 90_000; !dead && Date.now() < end; await wait(500)) {
-        const health = await fetch(`${url}/api/v1/health`).then(r => r.json()).catch(() => null)
+        // 每次檢查最多等 2 秒：埠被別的程式佔走、或 Shioaji 卡住不回應時，90 秒期限才有用，同步鎖也才會放開
+        const health = await fetch(`${url}/api/v1/health`, { signal: AbortSignal.timeout(2_000) }).then(r => r.json()).catch(() => null)
         if (health?.status === 'healthy') return
       }
       if (!dead) throw new Error('Shioaji 啟動逾時，請稍後再試')

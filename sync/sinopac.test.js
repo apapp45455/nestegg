@@ -68,6 +68,17 @@ test('sinopac: 沒有日期的明細提醒並略過，不會擋住其他紀錄',
   assert.equal(warnings.length, 2)
 })
 
+test('sinopac: 股數看不懂（NaN、小數、0）的提醒並略過，不會默默消失', () => {
+  const { rows, warnings } = toRows({
+    positions: [{ id: 0, code: '0050', direction: 'Buy', quantity: 'abc', price: 150, cond: 'Cash' }],
+    positionDetails: { 0: [{ date: '2026-01-02', quantity: 1 }] },
+    profitLoss: [{ id: 1, code: '2330', quantity: 1.5, price: 510, date: '2026-05-06', cond: 'Cash' }, { id: 2, code: '2317', quantity: 0, price: 100, date: '2026-05-07', cond: 'Cash' }],
+    profitDetails: { 1: [{ date: '2026-05-01', quantity: 1, price: 500 }], 2: [{ date: '2026-05-01', quantity: 1, price: 90 }] },
+  })
+  assert.deepEqual(rows, [])
+  assert.equal(warnings.length, 3)
+})
+
 test('sinopac: 沒有任何資料時是空的', () => {
   assert.deepEqual(toRows({}), { rows: [], warnings: [] })
 })
