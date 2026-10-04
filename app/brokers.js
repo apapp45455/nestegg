@@ -74,6 +74,10 @@ async function sync(b, creds, from) {
 
 // 同一時間只跑一個同步（不分券商），避免手動與自動同步重複登入
 const exclusive = fn => (running ??= fn().finally(() => (running = null)))
+// 清除金鑰、換 SDK 不能跟同步同時做：同步結束時會把讀到的舊設定寫回去，也可能載入換到一半的 SDK
+const idle = () => {
+  if (running) throw new Error('正在同步中，請等一下再試')
+}
 
 const syncSaved = id => exclusive(async () => {
   const b = broker(id)
@@ -145,12 +149,17 @@ export function initBrokers(context) {
   handle('broker:install-sdk', async id => {
     const b = broker(id)
     const file = await pickFile({ title: `選擇下載的${b.sdk.label}`, name: b.sdk.label, extensions: ['zip', 'tgz', 'gz'] })
-    return file && installSdk(b, file)
+    if (!file) return null
+    idle() // 選檔案的時候可能剛好開始自動同步，選完再檢查
+    return installSdk(b, file)
   })
   handle('broker:pick-cert', id => pickFile(broker(id).cert))
   handle('broker:connect', connect)
   handle('broker:sync', syncSaved)
-  handle('broker:disconnect', id => rm(configFile(broker(id)), { force: true }))
+  handle('broker:disconnect', id => {
+    idle()
+    return rm(configFile(broker(id)), { force: true })
+  })
   setTimeout(autoSync, 5_000)
   setInterval(autoSync, 3_600_000) // 每小時看一次今天同步了沒
 }

@@ -1,8 +1,9 @@
 // 端到端測試：真的啟動 NestEgg（主程序、寵物視窗、富邦同步的 utility process），
 // 用暫存資料夾、假富邦 SDK 與預先放好的行情快取，不連網、不碰你的真實資料。
 // 執行：npm run test:e2e（macOS 與 Windows 都能跑，CI 也跑這支）
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -148,6 +149,24 @@ async function runAll() {
     assert.ok(b.x + b.width <= a.x + a.width && b.y + b.height <= a.y + a.height, JSON.stringify({ b, a }))
   })
 
+  await test('安裝 SDK：不是富邦的、版本太舊的都拒絕，原本裝好的不受影響', async () => {
+    const pack = (name, pkg) => {
+      const dir = join(DATA, name)
+      mkdirSync(join(dir, 'package'), { recursive: true })
+      writeFileSync(join(dir, 'package', 'package.json'), JSON.stringify(pkg))
+      writeFileSync(join(dir, 'package', 'trade.js'), '')
+      execFileSync('tar', ['-czf', join(DATA, `${name}.tgz`), '-C', dir, 'package'])
+      return join(DATA, `${name}.tgz`)
+    }
+    const install = async file => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }) // 代替檔案對話框
+      return page("window.broker.installSdk('fubon')")
+    }
+    assert.match((await install(pack('other', { name: 'other-sdk', version: '9.9.9' }))).error, /不是富邦/)
+    assert.match((await install(pack('old', { name: 'fubon-neo', version: '2.0.0' }))).error, /太舊/)
+    assert.equal((await page("window.broker.status('fubon')")).ok.sdk, '2.4.0-fake')
+  })
+
   await test('設定精靈：列出券商與狀態，點進去是那家券商的設定頁', async () => {
     openSetup()
     const setup = () => windowAt('/setup.html')
@@ -159,6 +178,20 @@ async function runAll() {
     assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.4\.0-fake/)
     assert.match(await page('document.getElementById("paused").textContent', fubonPage()), /登入失敗/)
     fubonPage().destroy()
+  })
+
+  await test('清除金鑰：同步中會被擋下（同步結束不會把金鑰寫回來），同步完才清得掉', async () => {
+    writeFileSync(join(SDK, 'slow-login'), '')
+    try {
+      const syncing = page("window.broker.sync('fubon')")
+      assert.match((await page("window.broker.disconnect('fubon')")).error ?? '', /正在同步中/)
+      await syncing
+    } finally {
+      rmSync(join(SDK, 'slow-login'))
+    }
+    assert.equal((await page("window.broker.disconnect('fubon')")).error, undefined)
+    assert.equal(existsSync(join(DATA, 'fubon', 'config.json')), false)
+    assert.equal((await page("window.broker.status('fubon')")).ok.connected, false)
   })
 
   await test('結束：視窗關掉後還進來的事件不會讓主程序出錯', async () => {

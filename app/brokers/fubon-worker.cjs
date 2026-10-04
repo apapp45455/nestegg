@@ -12,14 +12,17 @@ process.parentPort.once('message', ({ data: { sdkDir, id, apiKey, certPath, cert
 
     const accounts = login.data.filter(a => a.accountType !== 'futopt')
     const fills = [], errors = []
-    for (const account of accounts) {
-      for (const [from, to] of windows) {
-        const res = sdk.stock.filledHistory(account, from, to)
-        if (res.isSuccess) fills.push(...(res.data ?? []))
-        else errors.push(`${from}–${to}：${res.message}`) // 沒成交的月份也可能回失敗，先收著
+    try {
+      for (const account of accounts) {
+        for (const [from, to] of windows) {
+          const res = sdk.stock.filledHistory(account, from, to)
+          if (res.isSuccess) fills.push(...(res.data ?? []))
+          else errors.push(`${from}–${to}：${res.message}`) // 沒成交的月份也可能回失敗，先收著
+        }
       }
+    } finally {
+      sdk.logout() // 查詢中途出錯也要登出，不留下連線
     }
-    sdk.logout()
     reply({ accounts: accounts.length, fills, errors })
   } catch (e) {
     reply({ error: e.message })
