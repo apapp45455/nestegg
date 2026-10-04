@@ -52,7 +52,7 @@ function addRows(rows, previous = []) {
     await writeFile(`${LEDGER}.tmp`, toCsv(parseLedger(toCsv(merged))))
     await rename(`${LEDGER}.tmp`, LEDGER)
     await refresh()
-    return merged.length - existing.length
+    return removeRows(rows, existing).length // 真的新增的筆數：原本帳本裡沒有的（快照取代時不會算出負數）
   })
   writing = task.catch(() => {}) // 這一筆失敗不影響下一筆
   return task

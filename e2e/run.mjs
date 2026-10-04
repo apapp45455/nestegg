@@ -192,6 +192,7 @@ async function runAll() {
     shioaji.profitDetails = { 0: [{ date: '2026-04-01', quantity: 1, price: 30, fee: 42, cond: 'Cash' }] }
     const res = await page("window.broker.sync('sinopac')")
     assert.equal(res.error, undefined, res.error)
+    assert.equal(res.ok.added, 2) // 新的賣出與帶手續費的買進；沒變的那筆不算（以前會算成淨增 1 筆）
     assert.equal(ledgerLines(',2890,'), 3)
     assert.equal(ledgerLines('2026-04-01,2890,buy,1000,30000,42'), 1)
     assert.equal(ledgerLines('2026-04-15,2890,buy,1000,30000,0'), 1)
