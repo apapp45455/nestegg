@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { copyFile, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HEADER, evaluate, mergeLedger, parseLedger, toCsv } from '../engine/index.js'
-import { initFubon, openSetup } from './fubon.js'
+import { initBrokers, openSetup } from './brokers.js'
 import { getMarket, startMarket } from './market.js'
 import { anchorOf, placeAt } from './placement.js'
 
@@ -84,7 +84,7 @@ const actions = [
   { label: '匯入交易紀錄 CSV…', click: importCsv },
   { label: '匯出備份…', click: exportBackup },
   { label: '在資料夾中顯示帳本（手動記帳）', click: showLedger },
-  { label: '富邦證券同步…', click: openSetup },
+  { label: '證券帳戶同步…', click: openSetup },
 ]
 const menu = Menu.buildFromTemplate([...actions, { type: 'separator' }, { label: '結束 NestEgg', role: 'quit' }])
 
@@ -109,7 +109,7 @@ app.whenReady().then(() => {
   // 每 10 秒重讀：接住手動編輯帳本，也接住跨日
   setInterval(refresh, 10_000)
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, place)
-  initFubon({ today, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
+  initBrokers({ today, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
   startMarket({ symbols: async () => (await readLedger().catch(() => [])).map(r => r.symbol), onUpdate: refresh })
 })
 

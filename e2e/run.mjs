@@ -28,15 +28,17 @@ process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
 await import('../app/main.js')
+const { openSetup } = await import('../app/brokers.js')
 // 注意：ESM 入口不能在最上層 await app.whenReady()（ready 要等入口跑完才會觸發），所以包成函式
 app.whenReady().then(runAll)
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
-const win = () => BrowserWindow.getAllWindows().find(w => !w.isDestroyed()) // 測試不開設定精靈，唯一的視窗就是寵物
-const page = code => win().webContents.executeJavaScript(code)
-async function until(code, ok, label, ms = 15_000) {
+const windowAt = file => BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && w.webContents.getURL().endsWith(file))
+const win = () => windowAt('/index.html') // 寵物
+const page = (code, w = win()) => w.webContents.executeJavaScript(code)
+async function until(code, ok, label, ms = 15_000, w = win) {
   for (const end = Date.now() + ms; Date.now() < end; await wait(200)) {
-    const v = await Promise.resolve().then(() => page(code)).catch(() => undefined)
+    const v = await Promise.resolve().then(() => page(code, w())).catch(() => undefined)
     if (ok(v)) return v
   }
   throw new Error(`等不到：${label}`)
@@ -68,9 +70,9 @@ async function runAll() {
   })
 
   await test('富邦同步：用假 SDK 連線，只算現股、寫進帳本、寵物孵化', async () => {
-    const status = await page('window.fubon.status()')
+    const status = await page("window.broker.status('fubon')")
     assert.equal(status.ok.sdk, '2.4.0-fake')
-    const res = await page(`window.fubon.connect({ id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
+    const res = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
     assert.equal(res.error, undefined, res.error)
     assert.equal(res.ok.added, 11) // 12 筆成交，融資那筆不算
     assert.equal(res.ok.accounts, 1) // 期貨帳戶不查
@@ -85,7 +87,7 @@ async function runAll() {
   })
 
   await test('富邦同步：再同步一次不會重複', async () => {
-    const res = await page('window.fubon.sync()')
+    const res = await page("window.broker.sync('fubon')")
     assert.equal(res.ok.added, 0)
     assert.equal(ledgerLines(), 11)
   })
@@ -95,8 +97,8 @@ async function runAll() {
     const before = secret()
     writeFileSync(join(SDK, 'slow-login'), '')
     try {
-      const syncing = page('window.fubon.sync()') // 先送出，主程序收到就標記為同步中
-      const res = await page(`window.fubon.connect({ id: 'b123456789', apiKey: 'other-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
+      const syncing = page("window.broker.sync('fubon')") // 先送出，主程序收到就標記為同步中
+      const res = await page(`window.broker.connect('fubon', { id: 'b123456789', apiKey: 'other-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
       assert.match(res.error ?? '', /正在同步中/)
       assert.equal((await syncing).ok?.added, 0)
     } finally {
@@ -107,9 +109,9 @@ async function runAll() {
 
   await test('富邦同步：登入失敗時暫停自動同步、帳本不變', async () => {
     writeFileSync(join(SDK, 'fail-login'), '')
-    const res = await page('window.fubon.sync()')
+    const res = await page("window.broker.sync('fubon')")
     assert.match(res.error, /登入失敗/)
-    assert.match((await page('window.fubon.status()')).ok.paused, /登入失敗/)
+    assert.match((await page("window.broker.status('fubon')")).ok.paused, /登入失敗/)
     assert.equal(ledgerLines(), 11)
   })
 
@@ -144,6 +146,19 @@ async function runAll() {
     await wait(200)
     const b = win().getBounds()
     assert.ok(b.x + b.width <= a.x + a.width && b.y + b.height <= a.y + a.height, JSON.stringify({ b, a }))
+  })
+
+  await test('設定精靈：列出券商與狀態，點進去是那家券商的設定頁', async () => {
+    openSetup()
+    const setup = () => windowAt('/setup.html')
+    const list = await until('document.getElementById("brokers").innerText', v => v, '券商清單', 15_000, setup)
+    assert.match(list, /富邦證券/)
+    assert.match(list, /自動同步已暫停/) // 上一個測試讓登入失敗
+    await page('document.querySelector(".brokers a").click()', setup())
+    const fubonPage = () => windowAt('/setup-fubon.html')
+    assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.4\.0-fake/)
+    assert.match(await page('document.getElementById("paused").textContent', fubonPage()), /登入失敗/)
+    fubonPage().destroy()
   })
 
   await test('結束：視窗關掉後還進來的事件不會讓主程序出錯', async () => {

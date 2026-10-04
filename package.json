@@ -23,8 +23,8 @@
       "app/**",
       "!app/**/*.test.js",
       "engine/index.js",
-      "sync/fubon.js",
-      "sync/market.js"
+      "sync/*.js",
+      "!sync/*.test.js"
     ],
     "electronDist": "node_modules/electron/dist",
     "mac": {
