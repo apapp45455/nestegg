@@ -267,6 +267,23 @@ async function runAll() {
     assert.equal(ledgerLines(',2884,'), 1)
   })
 
+  await test('永豐同步：你自己記過的相同紀錄不歸同步管，永豐不再回傳時也不會被刪掉', async () => {
+    const mine = '2026-08-01,2412,buy,1000,120000,0'
+    writeFileSync(join(DATA, 'ledger.csv'), readFileSync(join(DATA, 'ledger.csv'), 'utf8').trimEnd() + `\n${mine}\n`) // 手動記帳
+    shioaji.positions.push({ id: 9, code: '2412', direction: 'Buy', quantity: 1000, price: 120, cond: 'Cash' })
+    shioaji.positionDetails[9] = [{ date: '2026-08-01', quantity: 1 }]
+    try {
+      assert.equal((await page("window.broker.sync('sinopac')")).ok.added, 0) // 跟手動記的那筆一樣，去重
+      assert.equal(ledgerLines(mine), 1)
+    } finally {
+      shioaji.positions.pop()
+      delete shioaji.positionDetails[9]
+    }
+    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // 永豐不再回傳 2412
+    assert.equal(ledgerLines(mine), 1)
+    assert.equal(ledgerLines(',2890,'), 3)
+  })
+
   await test('永豐同步：上次寫完帳本、還沒記好就當機（紀錄檔裡新舊兩批都在），下次同步也不會重複', async () => {
     const rows = JSON.parse(readFileSync(join(DATA, 'sinopac', 'rows.json'), 'utf8'))
     const stale = [{ date: '2026-04-01', symbol: '2890', action: 'buy', shares: 1000, amount: 30000, fee: 0 }]

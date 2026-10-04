@@ -87,7 +87,7 @@ async function sync(b, creds, from, manual = false) {
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
     runWorker: (file, payload) => runWorker(file, payload, home(b)),
   })
-  if (!b.snapshot) return { added: await ctx.onRows(fresh), accounts, warnings }
+  if (!b.snapshot) return { added: (await ctx.onRows(fresh)).added, accounts, warnings }
   // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批。
   // rows.json 讀不出來就停下來、帳本不動：快照的數字會變，猜錯上一批會讓本金重複算
   const previous = await readJson(rowsFile(b), []).catch(() => {
@@ -101,8 +101,8 @@ async function sync(b, creds, from, manual = false) {
   }
   // 寫帳本前先記下新舊兩批：寫到一半當機或下一步寫不進去，下次同步兩批都會先拿掉，不會留下重複
   await writeJson(rowsFile(b), [...previous, ...rows])
-  const added = await ctx.onRows(rows, previous)
-  await writeJson(rowsFile(b), rows)
+  const { added, inserted } = await ctx.onRows(rows, previous)
+  await writeJson(rowsFile(b), inserted) // 只記同步自己寫進去的列；你自己記過的相同列不歸同步管
   return { added, accounts, warnings }
 }
 
