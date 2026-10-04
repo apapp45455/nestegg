@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "dist": "electron-builder",
+    "dist": "electron-builder --publish never",
     "test:e2e": "electron e2e/run.mjs"
   },
   "devDependencies": {
