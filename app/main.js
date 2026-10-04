@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, screen, shell } from 'electr
 import { existsSync } from 'node:fs'
 import { copyFile, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { HEADER, evaluate, mergeLedger, parseLedger, toCsv } from '../engine/index.js'
+import { HEADER, evaluate, mergeLedger, parseLedger, removeRows, toCsv } from '../engine/index.js'
 import { initBrokers, openSetup } from './brokers.js'
 import { getMarket, startMarket } from './market.js'
 import { anchorOf, placeAt } from './placement.js'
@@ -41,12 +41,13 @@ async function refresh() {
 }
 
 // CSV 匯入與券商同步共用：合併去重、寫入前再驗一次，壞資料不會進帳本。
-// 排隊一筆一筆寫：兩家券商同時同步（或同步時匯入 CSV）也不會互相蓋掉
+// 排隊一筆一筆寫：兩家券商同時同步（或同步時匯入 CSV）也不會互相蓋掉。
+// previous：快照型券商上次同步寫進來的那批，先拿掉再放新的
 let writing = Promise.resolve()
-function addRows(rows) {
+function addRows(rows, previous = []) {
   const task = writing.then(async () => {
     const existing = await readLedger() // 原帳本壞掉時直接中止，不覆蓋
-    const merged = mergeLedger(existing, rows)
+    const merged = mergeLedger(removeRows(existing, previous), rows)
     // 先寫暫存檔再改名（原子操作）：寫到一半被強制結束或當機，帳本也不會變成空檔
     await writeFile(`${LEDGER}.tmp`, toCsv(parseLedger(toCsv(merged))))
     await rename(`${LEDGER}.tmp`, LEDGER)
