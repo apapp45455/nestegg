@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { evaluate } from '../engine/index.js'
 import { toRows } from './sinopac.js'
 
 // 欄位與數值照 Shioaji 文件的範例輸出（positions、profit_loss 用 unit=Share 查）
@@ -46,6 +47,14 @@ test('sinopac: 分成三筆時股數合計不會少（33+33+34），賣出查不
   assert.deepEqual(rows.filter(r => r.action === 'buy').map(r => r.shares), [33, 33, 34])
   assert.equal(rows.filter(r => r.symbol === '2330').length, 0)
   assert.deepEqual(warnings, ['2330 2026-05-06 的賣出查不到買進明細，略過'])
+})
+
+test('sinopac: 當沖（同一天買進又賣出）不會留下幽靈持股', () => {
+  const { rows } = toRows({
+    profitLoss: [{ id: 0, code: '2330', quantity: 100, price: 510, date: '2026-05-06', cond: 'Cash' }],
+    profitDetails: { 0: [{ date: '2026-05-06', quantity: 100, price: 500, fee: 0, trade_type: 'DayTrade', cond: 'Cash' }] },
+  })
+  assert.equal(evaluate(rows, '2026-06-01').size, 1) // 本金 0；賣出被略過的話會是 50,000 → Lv2
 })
 
 test('sinopac: 沒有任何資料時是空的', () => {

@@ -229,6 +229,16 @@ async function runAll() {
     assert.equal(JSON.parse(readFileSync(join(DATA, 'sinopac', 'rows.json'), 'utf8')).length, 4)
   })
 
+  await test('永豐同步：上次寫完帳本、還沒記好就當機（紀錄檔裡新舊兩批都在），下次同步也不會重複', async () => {
+    const rows = JSON.parse(readFileSync(join(DATA, 'sinopac', 'rows.json'), 'utf8'))
+    const stale = [{ date: '2026-04-01', symbol: '2890', action: 'buy', shares: 1000, amount: 30000, fee: 0 }]
+    writeFileSync(join(DATA, 'sinopac', 'rows.json'), JSON.stringify([...stale, ...rows]))
+    const res = await page("window.broker.sync('sinopac')")
+    assert.equal(res.error, undefined, res.error)
+    assert.equal(ledgerLines(',2890,'), 3)
+    assert.equal(ledgerLines(',2884,'), 1)
+  })
+
   await test('永豐同步：Shioaji 跑在模擬環境時拒絕匯入', async () => {
     shioaji.simulation = true
     const res = await page("window.broker.sync('sinopac')")
