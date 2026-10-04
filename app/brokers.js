@@ -12,7 +12,7 @@ import fubon from './brokers/fubon.js'
 const BROKERS = Object.fromEntries([fubon].map(b => [b.id, b]))
 const run = promisify(execFile)
 let ctx, setupWin
-const running = new Map() // 券商 id → 正在跑的同步
+const running = new Map() // 券商 id → { kind: 'sync' | 'install', promise }
 
 const broker = id => BROKERS[id] ?? (() => { throw new Error(`不認識的券商：${id}`) })()
 // 每家券商一個資料夾：userData/<id>/{config.json, package/}
@@ -80,18 +80,22 @@ async function sync(b, creds, from) {
   return { added, accounts, warnings }
 }
 
-// 同一家券商同一時間只跑一個同步：手動與自動同步撞在一起時共用同一次結果，不重複登入。
-// 不同券商可以同時同步（寫帳本由 main.js 排隊，不會互相蓋掉）
-function exclusive(id, fn) {
-  if (!running.has(id)) running.set(id, fn().finally(() => running.delete(id)))
-  return running.get(id)
+// 同一家券商同一時間只做一件事（同步或安裝 SDK）。手動與自動同步撞在一起時共用同一次結果，不重複登入；
+// 同步遇上安裝（或反過來）就擋下。不同券商可以同時同步（寫帳本由 main.js 排隊，不會互相蓋掉）
+function exclusive(id, kind, fn) {
+  const busy = running.get(id)
+  if (busy?.kind === kind) return busy.promise
+  idle(id)
+  const promise = fn().finally(() => running.delete(id))
+  running.set(id, { kind, promise })
+  return promise
 }
 // 清除金鑰、換 SDK 不能跟那家的同步同時做：同步結束時會把讀到的舊設定寫回去，也可能載入換到一半的 SDK
-const idle = (id, message = '正在同步中，請等一下再試') => {
+function idle(id, message = '正在同步或安裝中，請等一下再試') {
   if (running.has(id)) throw new Error(message)
 }
 
-const syncSaved = id => exclusive(id, async () => {
+const syncSaved = id => exclusive(id, 'sync', async () => {
   const b = broker(id)
   const cfg = await readConfig(b)
   if (!cfg) throw new Error(`尚未連接${b.name}`)
@@ -109,7 +113,8 @@ const syncSaved = id => exclusive(id, async () => {
 async function autoSync() {
   for (const b of Object.values(BROKERS)) {
     const cfg = await readConfig(b).catch(() => null)
-    if (!cfg || cfg.paused || cfg.lastSync === ctx.today()) continue
+    // 正在同步或安裝的跳過，下個小時再看（也避免上一輪還沒跑完時重複通知）
+    if (!cfg || cfg.paused || cfg.lastSync === ctx.today() || running.has(b.id)) continue
     try {
       const { added } = await syncSaved(b.id)
       if (added) ctx.say(`${b.name}同步完成，新增 ${added} 筆紀錄`)
@@ -128,7 +133,7 @@ async function connect(id, form) {
   if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('這台電腦無法安全加密金鑰，因此不能儲存')
   // 不能共用正在跑的自動同步：那樣會回傳舊金鑰的結果，新輸入的金鑰也不會被存起來
   idle(id, '正在同步中，請等一下再按「連線並同步」')
-  return exclusive(id, async () => {
+  return exclusive(id, 'sync', async () => {
     const result = await sync(b, creds, since) // 先確定登入與查詢成功，才把金鑰存起來
     await writeConfig(b, { secret: await seal(creds), since, lastSync: ctx.today() })
     return result
@@ -162,9 +167,7 @@ export function initBrokers(context) {
   handle('broker:install-sdk', async id => {
     const b = broker(id)
     const file = await pickFile({ title: `選擇下載的${b.sdk.label}`, name: b.sdk.label, extensions: ['zip', 'tgz', 'gz'] })
-    if (!file) return null
-    idle(id) // 選檔案的時候可能剛好開始自動同步，選完再檢查
-    return installSdk(b, file)
+    return file && exclusive(id, 'install', () => installSdk(b, file))
   })
   handle('broker:pick-cert', id => pickFile(broker(id).cert))
   handle('broker:connect', connect)

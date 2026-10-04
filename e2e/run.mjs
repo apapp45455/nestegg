@@ -87,9 +87,15 @@ async function runAll() {
     assert.match(JSON.parse(cfg).secret, /^[A-Za-z0-9+/=]{20,}$/)
   })
 
-  await test('富邦同步：再同步一次不會重複', async () => {
-    const res = await page("window.broker.sync('fubon')")
-    assert.equal(res.ok.added, 0)
+  await test('富邦同步：再同步一次不會重複；登出失敗也不影響查到的紀錄', async () => {
+    writeFileSync(join(SDK, 'fail-logout'), '')
+    try {
+      const res = await page("window.broker.sync('fubon')")
+      assert.equal(res.error, undefined, res.error)
+      assert.equal(res.ok.added, 0)
+    } finally {
+      rmSync(join(SDK, 'fail-logout'))
+    }
     assert.equal(ledgerLines(), 11)
   })
 
@@ -181,11 +187,12 @@ async function runAll() {
     fubonPage().destroy()
   })
 
-  await test('清除金鑰：同步中會被擋下（同步結束不會把金鑰寫回來），同步完才清得掉', async () => {
+  await test('清除金鑰、安裝 SDK：同步中會被擋下（同步結束不會把金鑰寫回來），同步完才清得掉', async () => {
     writeFileSync(join(SDK, 'slow-login'), '')
     try {
       const syncing = page("window.broker.sync('fubon')")
-      assert.match((await page("window.broker.disconnect('fubon')")).error ?? '', /正在同步中/)
+      assert.match((await page("window.broker.disconnect('fubon')")).error ?? '', /正在同步/)
+      assert.match((await page("window.broker.installSdk('fubon')")).error ?? '', /正在同步/) // 檔案對話框還是上面那個替身
       await syncing
     } finally {
       rmSync(join(SDK, 'slow-login'))

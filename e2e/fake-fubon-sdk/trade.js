@@ -1,5 +1,5 @@
 // 端到端測試用的假富邦 SDK：介面跟真的 trade.js 的 CoreSdk 一樣，但不連網，回傳固定的成交紀錄。
-// 測試可以在這個資料夾放 fail-login 檔案模擬登入失敗、放 slow-login 讓登入卡 2 秒（模擬同步中）。
+// 測試可以在這個資料夾放 fail-login 檔案模擬登入失敗、放 slow-login 讓登入卡 2 秒（模擬同步中）、放 fail-logout 讓登出丟錯。
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -27,7 +27,10 @@ class CoreSdk {
     const key = d => d.replaceAll('/', '')
     return { filledHistory: (_account, from, to) => ({ isSuccess: true, data: FILLS.filter(f => key(f.date) >= from && key(f.date) <= to) }) }
   }
-  logout() { return true }
+  logout() {
+    if (fs.existsSync(path.join(__dirname, 'fail-logout'))) throw new Error('登出失敗（假的）')
+    return true
+  }
 }
 
 module.exports = { CoreSdk }

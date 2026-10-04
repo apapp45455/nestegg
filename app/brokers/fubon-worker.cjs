@@ -21,7 +21,8 @@ process.parentPort.once('message', ({ data: { sdkDir, id, apiKey, certPath, cert
         }
       }
     } finally {
-      sdk.logout() // 查詢中途出錯也要登出，不留下連線
+      // 查詢中途出錯也要登出，不留下連線；登出失敗不影響已經查到的紀錄
+      try { sdk.logout() } catch {}
     }
     reply({ accounts: accounts.length, fills, errors })
   } catch (e) {
