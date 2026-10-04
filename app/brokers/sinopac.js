@@ -10,6 +10,8 @@ import { toRows } from '../../sync/sinopac.js'
 const BIN = process.platform === 'win32' ? 'shioaji.exe' : 'shioaji'
 const OS = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[process.platform]
 const wait = ms => new Promise(r => setTimeout(r, ms))
+// 要使用者處理才會好的錯誤（登入失敗、權限不對、模擬環境）：共用流程會因此暫停自動同步，免得帳號被鎖
+const needsUser = message => Object.assign(new Error(message), { needsUser: true })
 
 const freePort = () => new Promise((resolve, reject) => {
   const srv = createServer().once('error', reject).listen(0, '127.0.0.1', () => {
@@ -69,8 +71,8 @@ export default {
     let log = '', dead = false
     child.stderr.on('data', d => { log = (log + d).slice(-400) })
     const exited = new Promise((_, reject) => {
-      child.once('error', e => { dead = true; reject(new Error(`無法執行 Shioaji：${e.message}`)) })
-      child.once('exit', code => { dead = true; reject(new Error(`Shioaji 登入失敗（代碼 ${code}）：${log.trim() || '沒有訊息'}`)) })
+      child.once('error', e => { dead = true; reject(needsUser(`無法執行 Shioaji，請重新安裝：${e.message}`)) })
+      child.once('exit', code => { dead = true; reject(needsUser(`Shioaji 登入失敗（代碼 ${code}）：${log.trim() || '沒有訊息'}`)) })
     })
     exited.catch(() => {}) // 查完後正常關掉也會走到這裡
     const url = `http://127.0.0.1:${port}`
@@ -100,7 +102,8 @@ export default {
           signal: AbortSignal.timeout(60_000),
         })
         const data = await res.json().catch(() => null)
-        if (!res.ok) throw new Error(`永豐回應錯誤：${data?.message ?? `HTTP ${res.status}`}`)
+        const message = `永豐回應錯誤：${data?.message ?? `HTTP ${res.status}`}`
+        if (!res.ok) throw [401, 403].includes(res.status) ? needsUser(`${message}（請確認 API Key 有勾「帳務」）`) : new Error(message)
         return data
       }
       const list = async (path, body) => {
@@ -108,7 +111,7 @@ export default {
         if (!Array.isArray(data)) throw new Error(`看不懂永豐回傳的 ${path}，可能是 Shioaji 改版了`)
         return data
       }
-      if ((await call('/api/v1/info')).simulation !== false) throw new Error('Shioaji 跑在模擬環境，查到的不是你的真實帳戶。請確認 API Key 有勾「正式環境」')
+      if ((await call('/api/v1/info')).simulation !== false) throw needsUser('Shioaji 跑在模擬環境，查到的不是你的真實帳戶。請確認 API Key 有勾「正式環境」')
 
       const positions = await list('/api/v1/portfolio/position_unit', { unit: 'Share' })
       const positionDetails = {}

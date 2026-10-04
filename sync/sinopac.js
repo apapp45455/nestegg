@@ -4,6 +4,7 @@
 // - 還沒賣的：持倉（positions）＋ 每筆持倉的買進明細（position_detail，有買進日期）
 // - 已經賣的：已實現損益（profit_loss，賣出那天）＋ 對到的買進明細（profit_loss_detail，有買進日期與價格）
 // 持倉是「目前」的快照，賣掉一部分之後數字會變，所以每次同步都重拼一次、取代上次寫進帳本的那批。
+import { isDate } from '../engine/index.js'
 
 const name = v => String(v ?? '').split('.').pop() // 'Cash'；有的版本會輸出 'StockOrderCond.Cash'
 const day = d => String(d).replace(/^(\d{4})[-/]?(\d{2})[-/]?(\d{2}).*$/, '$1-$2-$3') // 也接受 20260518、2026/05/18
@@ -29,14 +30,17 @@ export function toRows({ positions = [], positionDetails = {}, profitLoss = [], 
     const lots = spread(positionDetails[p.id] ?? [], Number(p.quantity))
     if (!lots.length) warnings.push(`${p.code} 查不到買進日期，略過`)
     // 明細的價格單位不一致（有的是每張），一律用持倉的平均成本（每股）
-    for (const l of lots) rows.push({ date: day(l.date), symbol: p.code, action: 'buy', shares: l.shares, amount: Math.round(Number(p.price) * l.shares), fee: 0 })
+    for (const l of lots) {
+      if (!isDate(day(l.date))) warnings.push(`${p.code} 有一筆持倉明細沒有日期，略過`) // 一筆壞資料不要擋住整次同步
+      else rows.push({ date: day(l.date), symbol: p.code, action: 'buy', shares: l.shares, amount: Math.round(Number(p.price) * l.shares), fee: 0 })
+    }
   }
   for (const pl of profitLoss.filter(isCash)) {
     const shares = Number(pl.quantity)
     const lots = spread(profitDetails[pl.id] ?? [], shares)
     // 對不到買進的賣出不寫：只有賣出會把平均成本扣掉，本金就算錯了
-    if (!lots.length) {
-      warnings.push(`${pl.code} ${day(pl.date)} 的賣出查不到買進明細，略過`)
+    if (!lots.length || ![pl, ...lots].every(x => isDate(day(x.date)))) {
+      warnings.push(`${pl.code} ${day(pl.date)} 的賣出查不到買進明細或日期，略過`)
       continue
     }
     rows.push({ date: day(pl.date), symbol: pl.code, action: 'sell', shares, amount: Math.round(Number(pl.price) * shares), fee: 0 })
