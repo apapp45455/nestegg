@@ -1,4 +1,4 @@
-// 永豐 adapter 真正開 Shioaji 伺服器的那一段（e2e 換成假伺服器，測不到這裡）
+// The part of the Sinopac adapter that really starts the Shioaji server (e2e swaps in a fake server, so it can't reach this)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -17,15 +17,15 @@ test('sinopac: 使用者環境裡的 SJ_ 變數（例如憑證）不會帶進 Sh
   assert.equal(env.PATH, '/bin')
 })
 
-// 假的 shioaji：參數或環境不對就結束；金鑰是 bad 就模擬登入失敗；否則在 SJ_HTTP_ADDR 開健康檢查
+// Fake shioaji: exits on wrong arguments or environment; simulates a login failure when the key is 'bad'; otherwise serves a health check on SJ_HTTP_ADDR
 test('sinopac: 開伺服器、等它好、查完關掉；登入失敗與找不到程式都有看得懂的錯誤', { skip: process.platform === 'win32' && '假執行檔是 shell script' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'nestegg-sj-'))
-  const bin = join(dir, 'fake-shioaji') // 不能叫 shioaji：那是 Shioaji 的資料夾（SJ_HOME_PATH）
+  const bin = join(dir, 'fake-shioaji') // Can't be named shioaji: that's Shioaji's data folder (SJ_HOME_PATH)
   writeFileSync(bin, `#!/usr/bin/env node
 const env = process.env
 if (env.SJ_API_KEY === 'bad') { console.error('Login failed: invalid api key'); process.exit(3) }
-if (env.SJ_API_KEY === 'fail') { console.error(env.SJ_SEC_KEY); process.exit(4) } // 用 Secret Key 欄位指定要印的錯誤訊息
-if (env.SJ_API_KEY.length > 20) { // 真的 Shioaji 1.7.7 遇到不存在的金鑰時印的訊息
+if (env.SJ_API_KEY === 'fail') { console.error(env.SJ_SEC_KEY); process.exit(4) } // The secret key field carries the error message to print
+if (env.SJ_API_KEY.length > 20) { // The message the real Shioaji 1.7.7 prints for a key that doesn't exist
   console.error('Error: Authentication failed: Shioaji error Request #P2P/v:bcsolace01/Oryfkqqm/PYAPI/' + env.SJ_API_KEY.slice(0, 10) + '/1005/073949/374920000/LOGINING/_ error code: 400, detail: key: ' + env.SJ_API_KEY + ' not exist.')
   process.exit(1)
 }
@@ -35,24 +35,24 @@ require('node:fs').mkdirSync(require('node:path').join(env.SJ_HOME_PATH, 'observ
 require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).listen(+port, host)
 `)
   chmodSync(bin, 0o755)
-  process.env.SJ_CA_PATH = join(dir, 'mine.pfx') // 使用者自己設的憑證不能被帶進去
+  process.env.SJ_CA_PATH = join(dir, 'mine.pfx') // The user's own certificate must not be passed through
   try {
     const { url, stop } = await sinopac.server(bin, creds, dir)
     assert.equal((await (await fetch(`${url}/api/v1/health`)).json()).status, 'healthy')
     stop()
     await new Promise(r => setTimeout(r, 300))
-    await assert.rejects(fetch(`${url}/api/v1/health`)) // 查完就關掉
-    // 認證錯誤 → 要使用者處理（自動同步暫停）；斷網之類 → 一般錯誤（下個小時再試）
+    await assert.rejects(fetch(`${url}/api/v1/health`)) // Shut down after the queries
+    // Authentication errors → the user must act (auto sync pauses); network problems and the like → ordinary errors (retried next hour)
     await assert.rejects(sinopac.server(bin, { ...creds, apiKey: 'bad' }, dir), e => /登入失敗（代碼 3）：Login failed/.test(e.message) && e.needsUser === true)
     for (const message of ['connect: network is unreachable', 'permission denied: ~/.shioaji', 'login timeout', 'token refresh failed: connection reset']) {
       await assert.rejects(sinopac.server(bin, { apiKey: 'fail', secretKey: message }, dir), e => /啟動失敗.*（代碼 4）/.test(e.message) && !e.needsUser, message)
     }
     await assert.rejects(sinopac.server(bin, { apiKey: 'fail', secretKey: 'Error: invalid api key' }, dir), e => e.needsUser === true)
     await assert.rejects(sinopac.server(join(dir, 'missing'), creds, dir), /無法執行 Shioaji/)
-    // 金鑰不存在（真的 Shioaji 的訊息）：要使用者處理。訊息裡的金鑰由共用流程遮掉，見 e2e
+    // Key doesn't exist (the real Shioaji message): the user must act. The shared flow masks the key in the message; see e2e
     await assert.rejects(sinopac.server(bin, { apiKey: '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb', secretKey: 's' }, dir), e =>
       e.needsUser === true && /not exist/.test(e.message))
-    // 啟動兩次（埠不同）只留下最後一次的 observability 資料夾
+    // Two starts (different ports) leave only the last observability folder
     for (let i = 0; i < 2; i++) (await sinopac.server(bin, creds, dir)).stop()
     assert.equal(readdirSync(join(dir, 'shioaji', 'observability')).length, 1)
   } finally {
@@ -60,7 +60,7 @@ require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).liste
   }
 })
 
-// 安裝：下載的壓縮檔解開後的資料夾 → 檢查作業系統、CPU、有沒有執行檔，記下版本
+// Install: the folder extracted from the download → check the OS, CPU and executable, and record the version
 test('sinopac: 安裝時認得對的壓縮檔，拒絕別的作業系統、別的 CPU 與不是 Shioaji 的檔案', async () => {
   const OS = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[process.platform]
   const ARCH = { arm64: 'aarch64', x64: 'x86_64' }[process.arch]

@@ -1,6 +1,6 @@
-// 端到端測試：真的啟動 NestEgg（主程序、寵物視窗、富邦同步的 utility process），
-// 用暫存資料夾、假富邦 SDK、假 Shioaji 伺服器與預先放好的行情快取，不連網、不碰你的真實資料。
-// 執行：npm run test:e2e（macOS 與 Windows 都能跑，CI 也跑這支）
+// End-to-end tests: really launch NestEgg (main process, pet window, the Fubon sync utility process)
+// with a temp folder, a fake Fubon SDK, a fake Shioaji server and pre-seeded market data: no network, and real user data is never touched.
+// Run: npm run test:e2e (works on macOS and Windows; CI runs it too)
 import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -13,22 +13,22 @@ const DATA = mkdtempSync(join(tmpdir(), 'nestegg-e2e-'))
 const SDK = join(DATA, 'fubon', 'package')
 app.setPath('userData', DATA)
 
-// 行情快取：剛抓的，所以 app 不會連網；0050 收 112、漲 2（前一天 110）
+// Market cache: freshly fetched, so the app stays offline; 0050 closed at 112, up 2 (110 the day before)
 writeFileSync(join(DATA, 'market.json'), JSON.stringify({
   date: '2026-10-02', indexChange: 1.2, prices: { '0050': { close: 112, change: 2 } }, fetchedAt: Date.now(),
 }))
-// 假富邦 SDK 直接放到「已安裝」的位置（安裝流程要開檔案對話框，交給手動測試）
+// Put the fake Fubon SDK straight into the installed location (the install flow opens a file dialog; it's stubbed in its own test)
 mkdirSync(SDK, { recursive: true })
 cpSync(join(import.meta.dirname, 'fake-fubon-sdk'), SDK, { recursive: true })
 const CERT = join(DATA, 'test-cert.pfx')
 writeFileSync(CERT, 'not a real certificate')
-// 永豐：假裝 Shioaji 命令列程式已經裝好；真正開伺服器的那一步換成下面的假伺服器
+// Sinopac: pretend the Shioaji command-line program is installed; the step that really starts the server is replaced by the fake server below
 const SHIOAJI = join(DATA, 'sinopac', 'package')
 mkdirSync(SHIOAJI, { recursive: true })
 writeFileSync(join(SHIOAJI, process.platform === 'win32' ? 'shioaji.exe' : 'shioaji'), '')
 writeFileSync(join(SHIOAJI, 'version.txt'), '1.7.7-fake')
 
-// 假的 Shioaji 本機 API 伺服器：回應帳務查詢，並記下被呼叫了哪些路徑
+// Fake local Shioaji API server: answers account queries and records which paths were called
 const shioaji = { simulation: false, calls: [], positions: [], positionDetails: {}, profitLoss: [], profitDetails: {} }
 const fakeShioaji = createServer((req, res) => {
   let body = ''
@@ -42,33 +42,33 @@ const fakeShioaji = createServer((req, res) => {
       '/api/v1/portfolio/profit_loss': shioaji.profitLoss,
       '/api/v1/portfolio/profit_loss_detail': shioaji.profitDetails[json.detail_id] ?? [],
     }[req.url]
-    // authError：像真的 Shioaji 一樣在錯誤訊息裡帶出金鑰（整組＋請求編號裡的前 10 碼）
+    // authError: leak the key in the error message like the real Shioaji does (the whole key plus its first 10 characters in the request ID)
     const key = shioaji.started?.creds.apiKey ?? ''
     if (shioaji.authError) return res.writeHead(401).end(JSON.stringify({ message: `Request #P2P/PYAPI/${key.slice(0, 10)}/1005 error code: 400, detail: key: ${key} not exist.` }))
     res.writeHead(reply ? 200 : 404, { 'Content-Type': 'application/json' }).end(JSON.stringify(reply ?? { message: 'not found' }))
   })
 }).listen(0, '127.0.0.1')
 
-// 整個過程中只要主程序丟出未處理的錯誤就算失敗（使用者看到的就是「JavaScript error」對話框）
+// Any unhandled error in the main process fails the run (users would see a "JavaScript error" dialog)
 const crashes = []
 process.on('uncaughtException', e => crashes.push(e.message))
 process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
 const { openSettings } = await import('../app/main.js')
-const { openSetup, syncSaved } = await import('../app/brokers.js') // syncSaved 直接呼叫＝自動同步那條路
+const { openSetup, syncSaved } = await import('../app/brokers.js') // Calling syncSaved directly = the auto sync path
 const { default: sinopac } = await import('../app/brokers/sinopac.js')
 let shioajiStops = 0
 sinopac.server = async (bin, creds) => {
   shioaji.started = { bin, creds }
   return { url: `http://127.0.0.1:${fakeShioaji.address().port}`, stop: () => shioajiStops++ }
 }
-// 注意：ESM 入口不能在最上層 await app.whenReady()（ready 要等入口跑完才會觸發），所以包成函式
+// Note: an ESM entry point can't top-level await app.whenReady() (ready only fires after the entry finishes), so wrap it in a function
 app.whenReady().then(runAll)
 
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const windowAt = file => BrowserWindow.getAllWindows().find(w => !w.isDestroyed() && w.webContents.getURL().endsWith(file))
-const win = () => windowAt('/index.html') // 寵物
+const win = () => windowAt('/index.html') // The pet
 const page = (code, w = win()) => w.webContents.executeJavaScript(code)
 async function until(code, ok, label, ms = 15_000, w = win) {
   for (const end = Date.now() + ms; Date.now() < end; await wait(200)) {
@@ -77,8 +77,8 @@ async function until(code, ok, label, ms = 15_000, w = win) {
   }
   throw new Error(`等不到：${label}`)
 }
-// 富邦同步卡在登入時做 fn，做完才放行；回傳 [fn 的結果, 同步的結果]。
-// 等假 SDK 真的進到登入才做 fn：主程序一定已經標記同步中，不靠時間差（不同視窗送出的訊息先後不一定）
+// Run fn while a Fubon sync is held at login, then let it continue; returns [fn's result, the sync's result].
+// fn only runs once the fake SDK has really entered login, so the main process has definitely marked the sync as running; no timing assumptions (messages from different windows can arrive in any order)
 async function duringFubonSync(fn) {
   const hold = join(SDK, 'hold-login'), started = join(SDK, 'login-started')
   rmSync(started, { force: true })
@@ -125,11 +125,11 @@ async function runAll() {
     const status = await page("window.broker.status('fubon')")
     assert.equal(status.ok.sdk, '2.4.0-fake')
     const badDate = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, since: '2025-02-31' })`)
-    assert.match(badDate.error, /起始日期/) // 不存在的日期，不是一句看不懂的 RangeError
+    assert.match(badDate.error, /起始日期/) // A nonexistent date gets a clear message, not a cryptic RangeError
     const res = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
     assert.equal(res.error, undefined, res.error)
-    assert.equal(res.ok.added, 11) // 12 筆成交，融資那筆不算
-    assert.equal(res.ok.accounts, 1) // 期貨帳戶不查
+    assert.equal(res.ok.added, 11) // 12 trades; the margin one doesn't count
+    assert.equal(res.ok.accounts, 1) // The futures account isn't queried
     assert.equal(ledgerLines(), 11)
     await until('state.stage', v => v === 'baby' || v === 'adult', '孵化')
   })
@@ -183,7 +183,7 @@ async function runAll() {
   })
 
   await test('永豐同步：用持倉明細拼回買進紀錄，只算現股，只呼叫帳務查詢', async () => {
-    // 2890 分兩次各買 1000 股（明細以張計），2330 是融資不算
+    // 2890 was bought in two lots of 1000 shares (details in board lots); 2330 is on margin and doesn't count
     shioaji.positions = [
       { id: 0, code: '2890', direction: 'Buy', quantity: 2000, price: 30, cond: 'Cash' },
       { id: 1, code: '2330', direction: 'Buy', quantity: 1000, price: 1000, cond: 'MarginTrading' },
@@ -195,7 +195,7 @@ async function runAll() {
     assert.equal(ledgerLines(',2890,buy,1000,30000,'), 2)
     assert.equal(ledgerLines(',2330,'), 0)
     assert.deepEqual(shioaji.started.creds, { apiKey: 'sj-key', secretKey: 'sj-secret' })
-    assert.equal(shioajiStops, 1) // 查完就關掉伺服器
+    assert.equal(shioajiStops, 1) // The server is shut down after the queries
     assert.ok(shioaji.calls.every(c => c.path === '/api/v1/info' || (c.path.startsWith('/api/v1/portfolio/') && c.account_type === 'S')), JSON.stringify(shioaji.calls))
     assert.equal(shioaji.calls.find(c => c.path.endsWith('/profit_loss')).begin_date, '2025-10-01')
     assert.doesNotMatch(readFileSync(join(DATA, 'sinopac', 'config.json'), 'utf8'), /sj-key|sj-secret/)
@@ -208,7 +208,7 @@ async function runAll() {
     shioaji.profitDetails = { 0: [{ date: '2026-04-01', quantity: 1, price: 30, fee: 42, cond: 'Cash' }] }
     const res = await page("window.broker.sync('sinopac')")
     assert.equal(res.error, undefined, res.error)
-    assert.equal(res.ok.added, 2) // 新的賣出與帶手續費的買進；沒變的那筆不算（以前會算成淨增 1 筆）
+    assert.equal(res.ok.added, 2) // The new sell and the buy with fees; the unchanged row doesn't count (it used to be counted as a net gain of 1)
     assert.equal(ledgerLines(',2890,'), 3)
     assert.equal(ledgerLines('2026-04-01,2890,buy,1000,30000,42'), 1)
     assert.equal(ledgerLines('2026-04-15,2890,buy,1000,30000,0'), 1)
@@ -220,13 +220,13 @@ async function runAll() {
     shioaji.positions.push({ id: 1, code: '2884', direction: 'Buy', quantity: 1000, price: 30, cond: 'Cash' })
     shioaji.positionDetails[1] = [{ date: '2026-07-01', quantity: 1 }]
     try {
-      const [sinopacRes, fubonRes] = await duringFubonSync(() => page("window.broker.sync('sinopac')")) // 富邦卡在登入，永豐趁這時候同步
+      const [sinopacRes, fubonRes] = await duringFubonSync(() => page("window.broker.sync('sinopac')")) // Fubon is held at login while Sinopac syncs
       assert.equal(sinopacRes.error, undefined, sinopacRes.error)
-      assert.equal(sinopacRes.ok.added, 1) // 不是富邦那次的結果
+      assert.equal(sinopacRes.ok.added, 1) // Not the result of the Fubon sync
       assert.equal(fubonRes.error, undefined, fubonRes.error)
       assert.equal(fubonRes.ok.added, 0)
     } finally {
-      writeFileSync(join(SDK, 'fail-login'), '') // 恢復前面測試的狀態
+      writeFileSync(join(SDK, 'fail-login'), '') // Restore the state from earlier tests
     }
     assert.equal(ledgerLines(',2884,'), 1)
     assert.equal(ledgerLines(',0050,'), 11)
@@ -254,20 +254,20 @@ async function runAll() {
       await assert.rejects(syncSaved('sinopac'), /如果你已經全部賣出/)
       assert.equal(ledgerLines(',2890,'), 3)
       assert.match((await page("window.broker.status('sinopac')")).ok.paused, /全部賣出/)
-      const res = await page("window.broker.sync('sinopac')") // 使用者按「立即同步」＝確認
+      const res = await page("window.broker.sync('sinopac')") // The user pressing "sync now" = confirmation
       assert.equal(res.error, undefined, res.error)
       assert.equal(ledgerLines(',2890,') + ledgerLines(',2884,'), 0)
     } finally {
       Object.assign(shioaji, { positions, profitLoss })
     }
-    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // 資料回來，給後面的測試用
+    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // Data is back for the following tests
     assert.equal(ledgerLines(',2890,'), 3)
     assert.equal(ledgerLines(',2884,'), 1)
   })
 
   await test('永豐同步：某檔暫時查不到明細時沿用上一次的紀錄，帳本裡的買進不會消失', async () => {
     const details = shioaji.positionDetails[0]
-    shioaji.positionDetails[0] = [] // 2890 的持倉明細暫時沒回來
+    shioaji.positionDetails[0] = [] // 2890's position details are temporarily missing
     try {
       const res = await page("window.broker.sync('sinopac')")
       assert.equal(res.error, undefined, res.error)
@@ -281,17 +281,17 @@ async function runAll() {
 
   await test('永豐同步：你自己記過的相同紀錄不歸同步管，永豐不再回傳時也不會被刪掉', async () => {
     const mine = '2026-08-01,2412,buy,1000,120000,0'
-    writeFileSync(join(DATA, 'ledger.csv'), readFileSync(join(DATA, 'ledger.csv'), 'utf8').trimEnd() + `\n${mine}\n`) // 手動記帳
+    writeFileSync(join(DATA, 'ledger.csv'), readFileSync(join(DATA, 'ledger.csv'), 'utf8').trimEnd() + `\n${mine}\n`) // A manual ledger entry
     shioaji.positions.push({ id: 9, code: '2412', direction: 'Buy', quantity: 1000, price: 120, cond: 'Cash' })
     shioaji.positionDetails[9] = [{ date: '2026-08-01', quantity: 1 }]
     try {
-      assert.equal((await page("window.broker.sync('sinopac')")).ok.added, 0) // 跟手動記的那筆一樣，去重
+      assert.equal((await page("window.broker.sync('sinopac')")).ok.added, 0) // Same as the manual entry, so deduplicated
       assert.equal(ledgerLines(mine), 1)
     } finally {
       shioaji.positions.pop()
       delete shioaji.positionDetails[9]
     }
-    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // 永豐不再回傳 2412
+    assert.equal((await page("window.broker.sync('sinopac')")).error, undefined) // Sinopac no longer returns 2412
     assert.equal(ledgerLines(mine), 1)
     assert.equal(ledgerLines(',2890,'), 3)
   })
@@ -314,17 +314,17 @@ async function runAll() {
   })
 
   await test('永豐同步：錯誤訊息帶出金鑰時遮掉，畫面與設定檔都看不到', async () => {
-    const key = '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb' // 真的金鑰長這樣（測試前面用的 sj-key 太短，不會被當成金鑰）
+    const key = '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb' // Real keys look like this (the sj-key used earlier is too short to be treated as a key)
     const connect = `window.broker.connect('sinopac', { apiKey: '${key}', secretKey: 'sj-secret', since: '2025-10-01' })`
     shioaji.simulation = false
-    assert.equal((await page(connect)).error, undefined) // 先存好這組金鑰
+    assert.equal((await page(connect)).error, undefined) // Save this key first
     shioaji.authError = true
     try {
       const res = await page(connect)
       assert.match(res.error, /key: \*\*\* not exist/)
       assert.ok(!res.error.includes(key.slice(0, 10)), res.error)
-      // 自動同步（已存的金鑰）遇到同樣的錯誤：暫停原因寫進設定檔，裡面也不能有金鑰
-      await assert.rejects(syncSaved('sinopac'), e => e.needsUser === true && !e.stack.includes(key.slice(0, 10))) // stack 會被 console.error 印出來
+      // Auto sync (with the saved key) hits the same error: the pause reason goes into the config file, which must not contain the key either
+      await assert.rejects(syncSaved('sinopac'), e => e.needsUser === true && !e.stack.includes(key.slice(0, 10))) // console.error prints the stack
       const config = readFileSync(join(DATA, 'sinopac', 'config.json'), 'utf8')
       assert.match(config, /key: \*\*\* not exist/)
       assert.ok(!config.includes(key.slice(0, 10)), config)
@@ -334,7 +334,7 @@ async function runAll() {
   })
 
   await test('行情：天氣、心情、毛色跟著快取的行情走', async () => {
-    // 成本每股約 69，收盤 112 → 毛色發亮；漲 2/110 ≈ +1.8% → 開心；加權 +1.2% → 晴天
+    // Cost about 69 per share, close 112 → shiny fur; up 2/110 ≈ +1.8% → happy; TAIEX +1.2% → sunny
     const s = await until('state', v => v?.weather, '行情狀態')
     assert.deepEqual([s.weather, s.mood, s.fur], ['sunny', 'happy', 'shiny'])
     assert.equal(await page('sky.hidden'), false)
@@ -346,28 +346,28 @@ async function runAll() {
     const file = join(DATA, 'settings.json')
     await until('document.querySelector("[name=mood]").value', v => v === '1', '設定載入', 15_000, settings)
     const set = (name, value) => page(`(el => { el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })) })(document.querySelector('[name=${name}]')); 0`, settings())
-    // 持股今天 +1.8%：門檻調到 2% 就不算開心了
+    // Holdings are +1.8% today: with the threshold at 2% the pet isn't happy any more
     await set('mood', '2')
     await until('state.mood', v => v === 'calm', '心情變平靜')
-    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2 }) // 只存改過的
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2 }) // Only changed values are saved
     await set('period', '7')
     await until('JSON.stringify(state)', () => JSON.parse(readFileSync(file, 'utf8')).period === 7, '週期存檔')
-    // 超出範圍：不存、檔案不變
+    // Out of range: not saved, file unchanged
     await set('fur', '500')
     await wait(500)
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2, period: 7 })
     await set('fur', '5')
-    // 體型門檻調低（萬元）：本金一樣，寵物馬上長到 Lv5
+    // Lower size thresholds (in units of NT$10,000): same principal, and the pet grows to Lv5 right away
     const size = await page('state.size')
     assert.ok(size < 5, `預設門檻下是 Lv${size}`)
     for (const [i, v] of ['0.1', '0.2', '0.3', '0.4'].entries()) await set(`lv${i + 2}`, v)
     await until('state.size', v => v === 5, '長到 Lv5')
-    // 沒有比前一級高：不存
+    // Not higher than the previous level: not saved
     await set('lv3', '0.1')
     await wait(500)
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2, period: 7, lv2: 0.1, lv3: 0.2, lv4: 0.3, lv5: 0.4 })
     await set('lv3', '0.2')
-    // 連續快速存檔（不等上一次存完）：每一次都成功，留下的是最後一次
+    // Rapid saves (without waiting for the previous one): every save succeeds and the last one wins
     const saves = await page('Promise.allSettled([2, 3, 4, 5].map(mood => window.petSettings.set({ mood }))).then(r => r.map(x => x.status))', settings())
     assert.deepEqual(saves, ['fulfilled', 'fulfilled', 'fulfilled', 'fulfilled'])
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 5 })
@@ -376,7 +376,7 @@ async function runAll() {
     assert.equal(await page('state.size'), size)
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {})
     assert.equal(await page('document.querySelector("[name=fur]").value', settings()), '5')
-    // 手改壞的設定檔：讀出來是預設值（寵物用同一個讀法，不會變成「帳本讀取失敗」）
+    // A settings file broken by hand reads back as the defaults (the pet uses the same reader, so it never shows "ledger read failed")
     writeFileSync(file, '{ 壞掉')
     assert.equal(await page('window.petSettings.get().then(r => r.values.mood)', settings()), 1)
     rmSync(file)
@@ -418,13 +418,13 @@ async function runAll() {
       return join(DATA, `${name}.tgz`)
     }
     const install = async file => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }) // 代替檔案對話框
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }) // Stands in for the file dialog
       return page("window.broker.installSdk('fubon')")
     }
     assert.match((await install(pack('other', { name: 'other-sdk', version: '9.9.9' }))).error, /不是富邦/)
     assert.match((await install(pack('old', { name: 'fubon-neo', version: '2.0.0' }))).error, /太舊/)
     assert.equal((await page("window.broker.status('fubon')")).ok.sdk, '2.4.0-fake')
-    rmSync(join(SDK, 'fail-login')) // 換上的新版不帶舊資料夾裡的檔案
+    rmSync(join(SDK, 'fail-login')) // The newly swapped-in version doesn't carry files from the old folder
     assert.equal((await install(pack('new', { name: 'fubon-neo', version: '2.5.0-fake' }))).ok, '2.5.0-fake')
     assert.equal(existsSync(join(SDK, 'fail-login')), false)
     assert.equal((await page("window.broker.sync('fubon')")).error, undefined)
@@ -436,11 +436,11 @@ async function runAll() {
     const list = await until('document.getElementById("brokers").innerText', v => v, '券商清單', 15_000, setup)
     assert.match(list, /富邦證券/)
     assert.match(list, /永豐金證券/)
-    assert.match(list, /自動同步已暫停/) // 永豐：前面測試的模擬環境錯誤
+    assert.match(list, /自動同步已暫停/) // Sinopac: the simulation-mode error from an earlier test
     await page('document.querySelector(".brokers a").click()', setup())
     const fubonPage = () => windowAt('/setup-fubon.html')
     assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.5\.0-fake/)
-    // 同步中按「清除儲存的金鑰」：畫面要說被擋下，不能說已清除
+    // Pressing "clear saved keys" during a sync: the page must say it was refused, not that the keys were cleared
     await page('window.confirm = () => true; 0', fubonPage())
     const [result] = await duringFubonSync(async () => {
       await page('document.getElementById("disconnect").click()', fubonPage())
@@ -454,7 +454,7 @@ async function runAll() {
   await test('清除金鑰、安裝 SDK：同步中會被擋下（同步結束不會把金鑰寫回來），同步完才清得掉', async () => {
     await duringFubonSync(async () => {
       assert.match((await page("window.broker.disconnect('fubon')")).error ?? '', /正在同步/)
-      assert.match((await page("window.broker.installSdk('fubon')")).error ?? '', /正在同步/) // 檔案對話框還是上面那個替身
+      assert.match((await page("window.broker.installSdk('fubon')")).error ?? '', /正在同步/) // The file dialog is still the stand-in from above
     })
     assert.equal((await page("window.broker.disconnect('fubon')")).error, undefined)
     assert.equal(existsSync(join(DATA, 'fubon', 'config.json')), false)
@@ -467,20 +467,20 @@ async function runAll() {
     const { ok } = await page('window.broker.list()')
     const fubon = ok.find(b => b.id === 'fubon')
     assert.match(fubon.paused, /設定檔損壞/)
-    assert.equal(fubon.sdk, null) // 顯示「尚未安裝」，重新安裝就好
+    assert.equal(fubon.sdk, null) // Shows "not installed"; reinstalling fixes it
     assert.equal((await page("window.broker.disconnect('fubon')")).error, undefined)
     assert.equal((await page("window.broker.status('fubon')")).ok.connected, false)
   })
 
   await test('結束：視窗關掉後還進來的事件不會讓主程序出錯', async () => {
-    app.on('window-all-closed', () => {}) // 測試用：視窗關了先別結束，才看得到之後的錯誤
+    app.on('window-all-closed', () => {}) // For the test: don't quit when the windows close, so later errors are still caught
     win().destroy()
     ipcMain.emit('solid', {}, true)
     ipcMain.emit('move', {}, 10, 10)
     ipcMain.emit('drop', {})
     screen.emit('display-metrics-changed', {}, screen.getPrimaryDisplay(), ['workArea'])
     app.emit('activate')
-    await wait(10_500) // 等過一次每 10 秒的重新整理
+    await wait(10_500) // Wait through one 10-second refresh
   })
 
   await test('整個過程主程序沒有未處理的錯誤', () => {

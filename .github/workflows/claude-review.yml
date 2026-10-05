@@ -6,7 +6,7 @@ on:
 
 jobs:
   review:
-    # 從 fork 送來的 PR 拿不到 secrets（公開 repo 的安全設計），草稿 PR 也先不審
+    # PRs from forks can't access secrets (a security measure for public repos), and draft PRs aren't reviewed yet
     if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 20

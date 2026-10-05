@@ -1,4 +1,4 @@
-// 16×16 像素圖。e = 眼睛上半（眨眼時消失），E = 眼睛下半
+// 16×16 pixel art. e = top half of an eye (disappears when blinking), E = bottom half
 const SPRITES = {
   egg: [
     '................',
@@ -62,16 +62,16 @@ const COLORS = {
   w: '#fff4dc', s: '#e8b866',
   y: '#ffd34d', Y: '#f0a830', b: '#ff8a3d', p: '#ff9eae',
 }
-// 毛色只換身體顏色；行情回來就恢復，不會累積
+// Fur only changes the body colors; it returns to normal with the market and never accumulates
 const FUR = {
   normal: {},
   shiny: { y: '#ffe36b', Y: '#ffb340' },
   dull: { y: '#d6caa0', Y: '#b8a67c', p: '#d2a8ac' },
 }
-const SPARKLES = [[1, 3], [14, 2], [15, 9], [0, 12]] // 發亮時在這些空白格閃爍
+const SPARKLES = [[1, 3], [14, 2], [15, 9], [0, 12]] // When shiny, sparkle on these empty cells
 const TEAR = '#5aa9ff'
 
-// 天空：16×10 像素，畫在寵物頭上
+// Sky: 16×10 pixels, drawn above the pet's head
 const SUN = [
   '........r.......',
   '....r...r...r...',
@@ -109,21 +109,21 @@ const ctx = pet.getContext('2d')
 const skyCtx = sky.getContext('2d')
 let state = { stage: 'none', size: 1, satiety: 3 }
 let blink = false
-let tick = 0 // 動畫格：雨滴、閃光
+let tick = 0 // Animation frame: raindrops, sparkles
 let bubbleTimer
 
 const px = (c, x, y, color) => { c.fillStyle = color; c.fillRect(x, y, 1, 1) }
 const paint = (c, rows, colors) => rows.forEach((row, y) => [...row].forEach((ch, x) => colors[ch] && px(c, x, y, colors[ch])))
 
-// 表情：眼睛是上下兩格（e 在上、E 在下）
+// Faces: each eye is two cells tall (e on top, E below)
 function drawFace(rows, colors) {
   rows.forEach((row, y) => [...row].forEach((ch, x) => {
     if (ch !== 'E') return
-    if (state.mood === 'happy') { // ^ ^ 瞇眼笑
+    if (state.mood === 'happy') { // ^ ^ smiling eyes
       px(ctx, x, y, colors.y)
       px(ctx, x - 1, y, colors.o)
       px(ctx, x + 1, y, colors.o)
-    } else if (state.mood === 'sad') { // 眼睛垂下，左眼一滴淚
+    } else if (state.mood === 'sad') { // Drooping eyes, a tear under the left eye
       px(ctx, x, y - 1, colors.y)
       if (x < 8) px(ctx, x, y + 1, TEAR)
     } else if (blink) {
@@ -139,7 +139,7 @@ function drawSky() {
   if (state.weather === 'sunny') return paint(skyCtx, SUN, SKY_COLORS)
   const storm = state.weather === 'typhoon'
   paint(skyCtx, CLOUD, storm ? { ...SKY_COLORS, ...STORM_COLORS } : SKY_COLORS)
-  // 雨滴往下掉、每欄錯開；颱風更密而且斜著下
+  // Raindrops fall with each column offset; a typhoon is denser and slanted
   const cols = storm ? [2, 4, 6, 8, 10, 12, 14] : [4, 8, 12]
   cols.forEach((x, i) => {
     const y = 6 + ((tick + i * 3) % 4)
@@ -155,9 +155,9 @@ function draw() {
   paint(ctx, rows, colors)
   if (hatched) drawFace(rows, colors)
   if (hatched && state.fur === 'shiny' && (tick >> 1) % 2) {
-    for (const [x, y] of SPARKLES) if (rows[y][x] === '.') px(ctx, x, y, '#ffb703') // 金色：深淺桌布上都看得到
+    for (const [x, y] of SPARKLES) if (rows[y][x] === '.') px(ctx, x, y, '#ffb703') // Gold: visible on both light and dark wallpapers
   }
-  pet.style.width = pet.style.height = `${16 * (3 + state.size)}px` // Lv1..5 → 每像素 4..8px
+  pet.style.width = pet.style.height = `${16 * (3 + state.size)}px` // Lv1..5 → 4..8px per pixel
   pet.className = [state.stage, state.satiety < 3 && 'hungry', hatched && state.mood, state.weather].filter(Boolean).join(' ')
   hunger.hidden = state.satiety >= 3
   drawSky()
@@ -185,7 +185,7 @@ function status() {
 
 window.nestegg.onState(s => {
   if (s.error) return say(`⚠️ 帳本讀取失敗\n${s.error}`, 0)
-  // 錯誤排除了、或「還沒有交易紀錄」的提示已經不成立，就收起氣泡
+  // Hide the bubble once the error is resolved or the "no trades yet" hint no longer applies
   if (bubble.textContent.startsWith('⚠️') || (state.stage === 'none' && s.stage !== 'none')) bubble.hidden = true
   const first = state.age === undefined
   state = s
@@ -193,9 +193,9 @@ window.nestegg.onState(s => {
   if (first && s.stage === 'none') say(status(), 0)
 })
 
-window.nestegg.onSay(text => say(text ?? status(), 8000)) // null = 顯示目前狀態
+window.nestegg.onSay(text => say(text ?? status(), 8000)) // null = show the current status
 
-// 拖曳 vs 點擊：移動超過 3px 才算拖曳
+// Drag vs click: it's a drag only after moving more than 3px
 let grab = null
 pet.addEventListener('pointerdown', e => {
   if (e.button !== 0) return
@@ -204,7 +204,7 @@ pet.addEventListener('pointerdown', e => {
 })
 pet.addEventListener('pointermove', e => {
   if (!grab) return
-  if (!(e.buttons & 1)) return (grab = null) // 漏接 pointerup 時別讓寵物黏在游標上
+  if (!(e.buttons & 1)) return (grab = null) // Don't let the pet stick to the cursor if a pointerup was missed
   if (Math.abs(e.screenX - grab.sx) + Math.abs(e.screenY - grab.sy) > 3) grab.moved = true
   if (grab.moved) window.nestegg.moveTo(e.screenX - grab.x, e.screenY - grab.y)
 })
@@ -214,7 +214,7 @@ pet.addEventListener('pointerup', () => {
   grab = null
 })
 
-// 只有滑鼠在寵物上（或拖曳中）才接收點擊，其餘透明區域穿透
+// Only take clicks when the mouse is over the pet (or dragging); transparent areas pass clicks through
 let solid = false
 document.addEventListener('mousemove', e => {
   const over = !!grab || e.target === pet

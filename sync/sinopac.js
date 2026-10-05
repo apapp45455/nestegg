@@ -1,17 +1,17 @@
-// 永豐金證券 Shioaji 帳務資料 → NestEgg 帳本列。純函式，不碰網路也不碰 Shioaji。
+// Sinopac Securities Shioaji account data → NestEgg ledger rows. Pure functions; no network, no Shioaji.
 //
-// Shioaji 沒有「歷史成交紀錄」查詢（order_deal_records 只有當天），所以從兩個地方拼回來：
-// - 還沒賣的：持倉（positions）＋ 每筆持倉的買進明細（position_detail，有買進日期）
-// - 已經賣的：已實現損益（profit_loss，賣出那天）＋ 對到的買進明細（profit_loss_detail，有買進日期與價格）
-// 持倉是「目前」的快照，賣掉一部分之後數字會變，所以每次同步都重拼一次、取代上次寫進帳本的那批。
+// Shioaji has no trade history query (order_deal_records only covers today), so trades are rebuilt from two sources:
+// - Still held: positions + each position's buy details (position_detail, with buy dates)
+// - Already sold: realized P&L (profit_loss, on the sell date) + the matching buy details (profit_loss_detail, with buy dates and prices)
+// Positions are a snapshot of now and change after a partial sale, so every sync rebuilds them and replaces the batch the last sync wrote.
 import { isDate } from '../engine/index.js'
 
-const name = v => String(v ?? '').split('.').pop() // 'Cash'；有的版本會輸出 'StockOrderCond.Cash'
-const day = d => String(d).replace(/^(\d{4})[-/]?(\d{2})[-/]?(\d{2}).*$/, '$1-$2-$3') // 也接受 20260518、2026/05/18
-const isCash = r => name(r.cond) === 'Cash' // 融資、融券用的不是自己的本金，不算
+const name = v => String(v ?? '').split('.').pop() // 'Cash'; some versions output 'StockOrderCond.Cash'
+const day = d => String(d).replace(/^(\d{4})[-/]?(\d{2})[-/]?(\d{2}).*$/, '$1-$2-$3') // Also accepts 20260518 and 2026/05/18
+const isCash = r => name(r.cond) === 'Cash' // Margin buying and short selling don't use the user's own principal, so they don't count
 
-// 明細的 quantity 有的以「張」計、有的以「股」計，依合計的股數換算回股數。
-// 前面幾筆無條件捨去、最後一筆拿剩下的，合計一定剛好等於 shares（不會留下幽靈持股或超賣）
+// Detail quantities are sometimes in board lots and sometimes in shares; convert them back to shares using the total share count.
+// Round every lot but the last down, and give the last one the remainder, so the total always equals shares exactly (no phantom shares, no overselling)
 function spread(lots, shares) {
   const total = lots.reduce((n, l) => n + Number(l.quantity), 0)
   if (!(total > 0)) return []
@@ -23,22 +23,22 @@ function spread(lots, shares) {
   })
 }
 
-// positions、profitLoss 用 unit=Share 查（數量是股數）；details 以 position / profit_loss 的 id 為 key
+// positions and profitLoss are queried with unit=Share (quantities are shares); details are keyed by the position / profit_loss id
 export function toRows({ positions = [], positionDetails = {}, profitLoss = [], profitDetails = {} }) {
   const rows = [], warnings = [], skipped = new Set()
-  // 資料不完整的股票記下來：快照取代時這檔沿用上一批，不會因為暫時缺資料就從帳本消失
+  // Record stocks with incomplete data: the snapshot replacement keeps their previous batch, so temporarily missing data never removes them from the ledger
   const skip = (code, message) => { warnings.push(message); skipped.add(code) }
-  const shareCount = n => (Number.isInteger(Number(n)) && Number(n) > 0 ? Number(n) : null) // 股數一定是正整數
+  const shareCount = n => (Number.isInteger(Number(n)) && Number(n) > 0 ? Number(n) : null) // A share count must be a positive integer
   for (const p of positions.filter(p => isCash(p) && name(p.direction) === 'Buy')) {
     if (!shareCount(p.quantity)) {
-      skip(p.code, `${p.code} 的持股數看不懂（${p.quantity}），略過`) // 不要讓持股默默消失
+      skip(p.code, `${p.code} 的持股數看不懂（${p.quantity}），略過`) // Don't let a holding silently disappear
       continue
     }
     const lots = spread(positionDetails[p.id] ?? [], Number(p.quantity))
     if (!lots.length) skip(p.code, `${p.code} 查不到買進日期，略過`)
-    // 明細的價格單位不一致（有的是每張），一律用持倉的平均成本（每股）
+    // Detail prices use inconsistent units (some are per board lot), so always use the position's average cost per share
     for (const l of lots) {
-      if (!isDate(day(l.date))) skip(p.code, `${p.code} 有一筆持倉明細沒有日期，略過`) // 一筆壞資料不要擋住整次同步
+      if (!isDate(day(l.date))) skip(p.code, `${p.code} 有一筆持倉明細沒有日期，略過`) // One bad record shouldn't block the whole sync
       else rows.push({ date: day(l.date), symbol: p.code, action: 'buy', shares: l.shares, amount: Math.round(Number(p.price) * l.shares), fee: 0 })
     }
   }
@@ -49,7 +49,7 @@ export function toRows({ positions = [], positionDetails = {}, profitLoss = [], 
       continue
     }
     const lots = spread(profitDetails[pl.id] ?? [], shares)
-    // 對不到買進的賣出不寫：只有賣出會把平均成本扣掉，本金就算錯了
+    // Don't write sells without matching buys: a sell alone would deduct average cost and get the principal wrong
     if (!lots.length || ![pl, ...lots].every(x => isDate(day(x.date)))) {
       skip(pl.code, `${pl.code} ${day(pl.date)} 的賣出查不到買進明細或日期，略過`)
       continue

@@ -31,7 +31,7 @@ jobs:
 
       - run: npm ci
 
-      # npm 11 預設不跑套件的 install script，Electron 執行檔要自己下載
+      # npm 11 doesn't run package install scripts by default, so download the Electron binary ourselves
       - name: 下載 Electron
         run: node node_modules/electron/install.js
 

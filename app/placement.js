@@ -1,9 +1,9 @@
-// 寵物視窗的位置：記住離哪個角落最近、距離多少，螢幕變了就照同樣的距離重新擺，並夾在可用範圍內。
-// 純函式（不碰 Electron），方便測試。area 是螢幕的 workArea（不含選單列、Dock、工作列）。
+// Pet window placement: remember the nearest corner and the distance from it, re-place at the same distance when the display changes, and clamp to the usable area.
+// Pure functions (no Electron), so they're easy to test. area is the display's workArea (excluding the menu bar, Dock and taskbar).
 
-const clamp = (n, min, max) => Math.max(min, Math.min(n, max)) // 螢幕比視窗小時以左上角為準
+const clamp = (n, min, max) => Math.max(min, Math.min(n, max)) // If the display is smaller than the window, the top-left corner wins
 
-// 放開拖曳時：記下水平、垂直各離哪一邊比較近（拖到螢幕外的距離算 0）
+// On drop: record which horizontal and vertical edge is closer (distance off screen counts as 0)
 export function anchorOf(bounds, area) {
   const left = bounds.x - area.x
   const right = area.x + area.width - (bounds.x + bounds.width)
@@ -15,7 +15,7 @@ export function anchorOf(bounds, area) {
   }
 }
 
-// 依 anchor 算出在這個螢幕上的位置，整個視窗一定落在可用範圍內
+// Compute the position on this display from the anchor; the whole window always lands inside the usable area
 export function placeAt(anchor, area, size) {
   const x = 'left' in anchor ? area.x + anchor.left : area.x + area.width - size.width - anchor.right
   const y = 'top' in anchor ? area.y + anchor.top : area.y + area.height - size.height - anchor.bottom

@@ -1,14 +1,14 @@
-// 證交所／櫃買中心 OpenAPI 的公開收盤資料 → 引擎要的 market 物件。純函式。
+// Public closing data from the TWSE / TPEx OpenAPI → the market object the engine expects. Pure functions.
 
 const rocDate = s => `${Number(s.slice(0, -4)) + 1911}-${s.slice(-4, -2)}-${s.slice(-2)}` // 1151002 → 2026-10-02
 
-// index: MI_INDEX；twse: STOCK_DAY_ALL；tpex: tpex_mainboard_daily_close_quotes（可省略）
+// index: MI_INDEX; twse: STOCK_DAY_ALL; tpex: tpex_mainboard_daily_close_quotes (optional)
 export function parseMarket(index, twse, tpex = []) {
   const taiex = index.find(r => r['指數'] === '發行量加權股價指數')
   if (!taiex) throw new Error('證交所資料裡找不到加權指數')
   const prices = {}
   const add = (code, close, change) => {
-    const c = Number.parseFloat(close) // 沒成交是 "--"，會變 NaN 被略過
+    const c = Number.parseFloat(close) // No trades shows as "--", which becomes NaN and is skipped
     const d = Number.parseFloat(change)
     if (c > 0) prices[String(code).trim()] = { close: c, change: Number.isFinite(d) ? d : 0 }
   }

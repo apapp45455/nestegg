@@ -1,9 +1,9 @@
-// 富邦新一代 API 成交紀錄 → NestEgg 帳本列。純函式，不碰網路也不碰 SDK。
+// Fubon next-generation API trade records → NestEgg ledger rows. Pure functions; no network, no SDK.
 import { addDays } from '../engine/index.js'
 
-export const WINDOW_DAYS = 30 // stock.filledHistory 單次最多查 30 天
+export const WINDOW_DAYS = 30 // stock.filledHistory covers at most 30 days per query
 
-// [from, to] 切成每段最多 30 天，格式為 SDK 要的 YYYYMMDD
+// Split [from, to] into windows of at most 30 days, formatted as the SDK's YYYYMMDD
 export function dateWindows(from, to) {
   const out = []
   for (let start = from; start <= to; start = addDays(start, WINDOW_DAYS)) {
@@ -14,7 +14,7 @@ export function dateWindows(from, to) {
 }
 
 const ACTIONS = { Buy: 'buy', Sell: 'sell' }
-const CASH = ['Stock', 'DayTrade'] // 融資、融券、借券用的不是自己的本金，不算
+const CASH = ['Stock', 'DayTrade'] // Margin buying, short selling and securities lending don't use the user's own principal, so they don't count
 
 export const fillsToRows = fills => fills
   .filter(f => ACTIONS[f.buySell] && CASH.includes(f.orderType))
@@ -24,5 +24,5 @@ export const fillsToRows = fills => fills
     action: ACTIONS[f.buySell],
     shares: f.filledQty,
     amount: Math.round(f.filledPrice * f.filledQty),
-    fee: 0, // ponytail: API 不回傳手續費，本金會略少；要精確請改匯入對帳單 CSV
+    fee: 0, // ponytail: the API returns no fees, so principal is slightly low; import the statement CSV for exact numbers
   }))

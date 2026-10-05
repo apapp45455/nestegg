@@ -3,14 +3,14 @@ import assert from 'node:assert/strict'
 import { evaluate } from '../engine/index.js'
 import { toRows } from './sinopac.js'
 
-// 欄位與數值照 Shioaji 文件的範例輸出（positions、profit_loss 用 unit=Share 查）
+// Fields and values follow the sample output in the Shioaji docs (positions and profit_loss queried with unit=Share)
 const positions = [
   { id: 0, code: '2890', direction: 'Buy', quantity: 1000, price: 30.0, last_price: 31.0, cond: 'Cash' },
   { id: 1, code: '2330', direction: 'Buy', quantity: 1000, price: 2000.0, cond: 'MarginTrading' },
   { id: 2, code: '2603', direction: 'Sell', quantity: 1000, price: 150.0, cond: 'ShortSelling' },
 ]
 const positionDetails = {
-  0: [{ date: '2026-05-18', code: '2890', quantity: 1, price: 30000, dseq: 'Y1QDH', cond: 'Cash' }], // 明細以張計、價格是每張
+  0: [{ date: '2026-05-18', code: '2890', quantity: 1, price: 30000, dseq: 'Y1QDH', cond: 'Cash' }], // Details in board lots, prices per board lot
 }
 const profitLoss = [{ id: 0, code: '2890', quantity: 1000, price: 31, date: '2026-05-05', pnl: 1000, cond: 'StockOrderCond.Cash' }]
 const profitDetails = {
@@ -55,7 +55,7 @@ test('sinopac: 當沖（同一天買進又賣出）不會留下幽靈持股', ()
     profitLoss: [{ id: 0, code: '2330', quantity: 100, price: 510, date: '2026-05-06', cond: 'Cash' }],
     profitDetails: { 0: [{ date: '2026-05-06', quantity: 100, price: 500, fee: 0, trade_type: 'DayTrade', cond: 'Cash' }] },
   })
-  assert.equal(evaluate(rows, '2026-06-01').size, 1) // 本金 0；賣出被略過的話會是 50,000 → Lv2
+  assert.equal(evaluate(rows, '2026-06-01').size, 1) // Principal 0; if the sell were skipped it would be 50,000 → Lv2
 })
 
 test('sinopac: 沒有日期的明細提醒並略過，不會擋住其他紀錄', () => {

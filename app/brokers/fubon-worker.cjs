@@ -1,9 +1,9 @@
-// 在獨立的 utility process 跑富邦 SDK：SDK 全是同步呼叫（光建構就要 1 秒），放主程序會卡住寵物。
-// 這裡只呼叫 API Key 登入、成交紀錄查詢、登出 —— 沒有任何下單相關的呼叫。
+// Runs the Fubon SDK in a separate utility process: every SDK call is synchronous (construction alone takes a second) and would freeze the pet in the main process.
+// Only API-key login, the trade history query and logout are called here; there are no order-related calls.
 const { join } = require('node:path')
 
 process.parentPort.once('message', ({ data: { sdkDir, id, apiKey, certPath, certPass, windows } }) => {
-  const reply = msg => process.parentPort.postMessage(msg) // 回覆後由主程序結束這個 process
+  const reply = msg => process.parentPort.postMessage(msg) // The main process ends this process after the reply
   try {
     const { CoreSdk } = require(join(sdkDir, 'trade.js'))
     const sdk = new CoreSdk(require(join(sdkDir, 'package.json')).version)
@@ -17,11 +17,11 @@ process.parentPort.once('message', ({ data: { sdkDir, id, apiKey, certPath, cert
         for (const [from, to] of windows) {
           const res = sdk.stock.filledHistory(account, from, to)
           if (res.isSuccess) fills.push(...(res.data ?? []))
-          else errors.push(`${from}–${to}：${res.message}`) // 沒成交的月份也可能回失敗，先收著
+          else errors.push(`${from}–${to}：${res.message}`) // Months without trades can also fail; collect the errors for now
         }
       }
     } finally {
-      // 查詢中途出錯也要登出，不留下連線；登出失敗不影響已經查到的紀錄
+      // Log out even if a query fails so no session is left open; a failed logout doesn't affect records already fetched
       try { sdk.logout() } catch {}
     }
     reply({ accounts: accounts.length, fills, errors })

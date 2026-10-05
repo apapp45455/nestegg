@@ -1,5 +1,5 @@
-// 券商串接的共用流程：安裝 SDK、加密保存金鑰、同步成交紀錄、設定精靈視窗。
-// 每家券商只在 brokers/<id>.js 寫自己不一樣的地方（SDK 怎麼檢查、要填哪些欄位、怎麼查成交紀錄）。
+// Shared broker flow: SDK install, encrypted key storage, trade sync and the setup wizard window.
+// Each broker only implements what differs in brokers/<id>.js (SDK checks, form fields, how to query trades).
 import { BrowserWindow, app, dialog, ipcMain, safeStorage, shell, utilityProcess } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -12,22 +12,22 @@ import sinopac from './brokers/sinopac.js'
 
 const BROKERS = Object.fromEntries([fubon, sinopac].map(b => [b.id, b]))
 const run = promisify(execFile)
-// Windows 指定系統內建的 bsdtar：PATH 上先找到 Git for Windows 的 GNU tar 會把 C:\ 當成遠端主機
+// On Windows use the built-in bsdtar: Git for Windows' GNU tar, if found first on PATH, treats C:\ as a remote host
 const TAR = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar'
-const untar = (archive, dir) => run(TAR, ['-xf', archive, '-C', dir]) // bsdtar 能解 zip、tgz、tar.gz
+const untar = (archive, dir) => run(TAR, ['-xf', archive, '-C', dir]) // bsdtar handles zip, tgz and tar.gz
 let ctx, setupWin
-const running = new Map() // 券商 id → { kind: 'sync' | 'install', promise }
+const running = new Map() // broker id → { kind: 'sync' | 'install', promise }
 
 const broker = id => BROKERS[id] ?? (() => { throw new Error(`不認識的券商：${id}`) })()
-// 每家券商一個資料夾：userData/<id>/{config.json, package/}
+// One folder per broker: userData/<id>/{config.json, package/}
 const home = b => join(app.getPath('userData'), b.id)
 const sdkDir = b => join(home(b), 'package')
 const configFile = b => join(home(b), 'config.json')
-const rowsFile = b => join(home(b), 'rows.json') // 快照型券商：上次同步寫進帳本的那批
+const rowsFile = b => join(home(b), 'rows.json') // Snapshot brokers: the batch the last sync wrote to the ledger
 
 const readJson = async (file, fallback) => (existsSync(file) ? JSON.parse(await readFile(file, 'utf8')) : fallback)
 const writeJson = async (file, data) => {
-  await writeFile(`${file}.tmp`, JSON.stringify(data, null, 2)) // 同帳本：先寫暫存檔再改名
+  await writeFile(`${file}.tmp`, JSON.stringify(data, null, 2)) // Same as the ledger: write a temp file, then rename
   await rename(`${file}.tmp`, file)
 }
 const readConfig = b => readJson(configFile(b), null)
@@ -37,8 +37,8 @@ const writeConfig = async (b, cfg) => {
 }
 const sdkVersion = b => b.sdk.version(sdkDir(b))
 
-// 金鑰用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後才落地。
-// 用非同步版：macOS 詢問鑰匙圈權限時，同步版會卡住整個主程序，寵物連拖都拖不動。
+// Keys are encrypted with the system keychain (macOS Keychain / Windows DPAPI) before touching disk.
+// Use the async API: while macOS asks for keychain access, the sync API blocks the whole main process and the pet can't even be dragged.
 const seal = async obj => (await safeStorage.encryptStringAsync(JSON.stringify(obj))).toString('base64')
 const unseal = async s => JSON.parse((await safeStorage.decryptStringAsync(Buffer.from(s, 'base64'))).result)
 
@@ -47,13 +47,13 @@ async function installSdk(b, file) {
   await rm(tmp, { recursive: true, force: true })
   await mkdir(tmp, { recursive: true })
   try {
-    // 瀏覽器下載的檔案帶 macOS quarantine 標記，tar 解出的檔案會沿用，帶標記的原生模組一載入就卡住。
-    // 用讀寫複製一份（不帶延伸屬性）再解壓縮，就不會產生標記。
+    // Browser downloads carry the macOS quarantine flag, tar passes it on to extracted files, and a flagged native module hangs on load.
+    // Copying by read/write (without extended attributes) before extracting avoids the flag.
     const archive = join(tmp, basename(file))
     await writeFile(archive, await readFile(file))
     await untar(archive, tmp)
     const dir = await b.sdk.unpack(tmp, untar)
-    // 先把舊的移開、新的換上，再刪舊的：不會有「刪了一半」的 SDK；換不上就放回舊的
+    // Move the old SDK aside, put the new one in place, then delete the old one: never a half-deleted SDK, and the old one is restored if the swap fails
     const old = join(tmp, 'old')
     if (existsSync(sdkDir(b))) await rename(sdkDir(b), old)
     try {
@@ -68,10 +68,10 @@ async function installSdk(b, file) {
   }
 }
 
-// 在獨立的 utility process 跑券商 SDK（多半是同步呼叫，放主程序會卡住寵物）
+// Run the broker SDK in a separate utility process (most calls are synchronous and would freeze the pet in the main process)
 function runWorker(file, payload, cwd) {
   return new Promise((resolve, reject) => {
-    const child = utilityProcess.fork(file, [], { cwd, serviceName: 'NestEgg 券商同步' }) // SDK 會在 cwd 寫 log
+    const child = utilityProcess.fork(file, [], { cwd, serviceName: 'NestEgg 券商同步' }) // The SDK writes logs to cwd
     const timer = setTimeout(() => { child.kill(); reject(new Error('券商連線逾時，請稍後再試')) }, 120_000)
     child.once('spawn', () => child.postMessage(payload))
     child.once('message', msg => { clearTimeout(timer); child.kill(); resolve(msg) })
@@ -79,55 +79,55 @@ function runWorker(file, payload, cwd) {
   })
 }
 
-// manual：使用者自己按的（連線、立即同步），快照全空時當作確認
+// manual: started by the user (connect, sync now); counts as confirmation when a snapshot comes back empty
 async function sync(b, creds, from, manual = false) {
   await mkdir(home(b), { recursive: true })
   const { rows: fresh, accounts, warnings, skipped = [] } = await b.fetch({
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
     runWorker: (file, payload) => runWorker(file, payload, home(b)),
   }).catch(e => {
-    // stack 也帶著原本的訊息（自動同步失敗會 console.error 整個錯誤）；不是 Error 的就原樣丟出，不要因為遮罩又丟出新的錯誤
+    // The stack also carries the original message (failed auto syncs console.error the whole error); rethrow non-Errors untouched so masking never throws a new error
     if (e instanceof Error) Object.assign(e, { message: redact(e.message, Object.values(creds)), stack: e.stack && redact(e.stack, Object.values(creds)) })
     throw e
   })
   if (!b.snapshot) return { added: (await ctx.onRows(fresh)).added, accounts, warnings }
-  // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批。
-  // rows.json 讀不出來就停下來、帳本不動：快照的數字會變，猜錯上一批會讓本金重複算
+  // Snapshot brokers (only current positions and realized P&L are available) return the full history since `since` every time: replace the batch the last sync wrote.
+  // If rows.json can't be read, stop and leave the ledger alone: snapshot numbers change, and guessing the previous batch wrong would double-count principal
   const previous = await readJson(rowsFile(b), []).catch(() => {
     throw needsUser(`${b.name}的同步紀錄檔損壞，為了不重複記帳先停止同步。請刪除 NestEgg 資料夾裡的 ${b.id}/rows.json，再檢查帳本有沒有重複的紀錄`)
   })
-  // 這次資料不完整的股票（adapter 回報 skipped）：這次的先不用、沿用上一批，暫時缺資料不會讓帳本裡的買進消失
+  // Stocks with incomplete data this time (reported in `skipped`): keep the previous batch instead, so missing data doesn't make buys vanish from the ledger
   const rows = [...fresh.filter(r => !skipped.includes(r.symbol)), ...previous.filter(r => skipped.includes(r.symbol))]
-  // 這次什麼都沒查到、上次卻有：可能是券商暫時回空（維護中），也可能真的全賣了。自動同步不猜，停下來請使用者確認
+  // Nothing came back this time but something did last time: the broker may be returning empty data (maintenance), or everything was really sold. Auto sync doesn't guess; it stops and asks the user to confirm
   if (!rows.length && previous.length && !manual) {
     throw needsUser(`${b.name}這次沒有回傳任何持倉或損益，先不更新帳本。如果你已經全部賣出，請按「立即同步」確認`)
   }
-  // 寫帳本前先記下新舊兩批：寫到一半當機或下一步寫不進去，下次同步兩批都會先拿掉，不會留下重複
+  // Record both the old and new batches before writing the ledger: after a crash mid-write, or if the next step fails, the next sync removes both first and leaves no duplicates
   await writeJson(rowsFile(b), [...previous, ...rows])
   const { added, inserted } = await ctx.onRows(rows, previous)
-  await writeJson(rowsFile(b), inserted) // 只記同步自己寫進去的列；你自己記過的相同列不歸同步管
+  await writeJson(rowsFile(b), inserted) // Only record rows this sync actually inserted; identical rows the user entered themselves don't belong to the sync
   return { added, accounts, warnings }
 }
 
-// 券商的錯誤訊息可能帶出金鑰（永豐金鑰不存在時會印出整組 API Key，請求編號裡還有前 10 碼）。
-// 錯誤訊息會顯示在畫面上、也會寫進設定檔的暫停原因，所以整串與 8 碼以上的片段都遮掉；短於 8 碼的欄位（憑證密碼）不比對，免得遮到一般的字
+// Broker error messages can leak keys (Shioaji prints the whole API key when it doesn't exist, plus its first 10 characters in the request ID).
+// Error messages are shown on screen and saved as the pause reason in the config file, so mask whole keys and fragments of 8+ characters; fields shorter than 8 characters (certificate passwords) are skipped so ordinary words aren't masked
 const redact = (text, secrets) => secrets.filter(s => typeof s === 'string' && s.length >= 8).reduce(
   (t, s) => t.replaceAll(s, '***').replace(/[A-Za-z0-9]{8,}/g, w => (s.includes(w) ? '***' : w)), text)
 
-// 要使用者處理才會好的錯誤（登入失敗、讀不到金鑰）帶 needsUser，自動同步會因此暫停；adapter 也這樣標記
+// Errors only the user can fix (login failure, unreadable keys) carry needsUser, which pauses auto sync; adapters mark errors the same way
 const needsUser = message => Object.assign(new Error(message), { needsUser: true })
 
-// 同一家券商同一時間只做一件事（同步或安裝 SDK）。手動與自動同步撞在一起時共用同一次結果，不重複登入；
-// 同步遇上安裝（或反過來）就擋下。不同券商可以同時同步（寫帳本由 main.js 排隊，不會互相蓋掉）
+// One thing at a time per broker (sync or SDK install). A manual sync that collides with an auto sync shares its result instead of logging in twice;
+// a sync during an install (or the reverse) is refused. Different brokers can sync at the same time (main.js queues ledger writes, so they never overwrite each other)
 function exclusive(id, kind, fn) {
   const busy = running.get(id)
-  if (busy?.kind === 'sync' && kind === 'sync') return busy.promise // 只有同步共用結果；安裝不行（第二個檔案會被默默忽略）
+  if (busy?.kind === 'sync' && kind === 'sync') return busy.promise // Only syncs share results; installs can't (the second file would be silently ignored)
   idle(id)
   const promise = fn().finally(() => running.delete(id))
   running.set(id, { kind, promise })
   return promise
 }
-// 清除金鑰、換 SDK 不能跟那家的同步同時做：同步結束時會把讀到的舊設定寫回去，也可能載入換到一半的 SDK
+// Clearing keys or swapping the SDK can't run during that broker's sync: the sync writes back the old config it read, and could load a half-swapped SDK
 function idle(id, message = '正在同步或安裝中，請等一下再試') {
   if (running.has(id)) throw new Error(message)
 }
@@ -136,14 +136,14 @@ export const syncSaved = (id, manual = false) => exclusive(id, 'sync', async () 
   const b = broker(id)
   const cfg = await readConfig(b)
   if (!cfg) throw new Error(`尚未連接${b.name}`)
-  const from = addDays(cfg.lastSync, -7) // 重疊一週，補抓上次同步後才成交的紀錄（重複的會被合併掉）
+  const from = addDays(cfg.lastSync, -7) // Overlap by a week to catch trades settled after the last sync (duplicates are merged)
   let result
   try {
     const creds = await unseal(cfg.secret).catch(e => { throw needsUser(`讀不到儲存的金鑰：${e.message}`) })
     result = await sync(b, creds, b.snapshot || from < cfg.since ? cfg.since : from, manual)
   } catch (e) {
-    // 登入失敗、讀不到金鑰這種要使用者處理的才暫停自動同步（反覆登入失敗可能讓帳號被鎖）；
-    // 斷網、逾時這類暫時的問題不暫停，下個小時再試。寫不進暫停狀態也不要蓋掉原本的錯誤
+    // Only pause auto sync for errors the user must fix, such as login failure or unreadable keys (repeated failed logins can lock the account);
+    // temporary problems like network errors or timeouts don't pause it; it retries next hour. Failing to save the pause must not hide the original error
     if (e.needsUser) await writeConfig(b, { ...cfg, paused: e.message }).catch(() => {})
     throw e
   }
@@ -154,7 +154,7 @@ export const syncSaved = (id, manual = false) => exclusive(id, 'sync', async () 
 async function autoSync() {
   for (const b of Object.values(BROKERS)) {
     const cfg = await readConfig(b).catch(() => null)
-    // 正在同步或安裝的跳過，下個小時再看（也避免上一輪還沒跑完時重複通知）
+    // Skip brokers that are syncing or installing and check again next hour (also avoids duplicate notices while the previous round is still running)
     if (!cfg || cfg.paused || cfg.lastSync === ctx.today() || running.has(b.id)) continue
     try {
       const { added } = await syncSaved(b.id)
@@ -170,20 +170,20 @@ async function connect(id, form) {
   const b = broker(id)
   const creds = b.credentials(form)
   const since = String(form.since ?? '')
-  if (!isDate(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期') // 2025-02-31 這種也擋下
+  if (!isDate(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期') // Also rejects dates like 2025-02-31
   if (!(await sdkVersion(b))) throw new Error(`請先安裝${b.sdk.label}`)
   if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('這台電腦無法安全加密金鑰，因此不能儲存')
-  // 不能共用正在跑的自動同步：那樣會回傳舊金鑰的結果，新輸入的金鑰也不會被存起來
+  // Can't share a running auto sync: it would return results for the old keys, and the newly entered keys would never be saved
   idle(id, '正在同步中，請等一下再按「連線並同步」')
   return exclusive(id, 'sync', async () => {
-    const result = await sync(b, creds, since, true) // 先確定登入與查詢成功，才把金鑰存起來
+    const result = await sync(b, creds, since, true) // Only save the keys after login and the query succeed
     await writeConfig(b, { secret: await seal(creds), since, lastSync: ctx.today() })
     return result
   })
 }
 
 async function status(b) {
-  // 設定檔壞掉時照樣列出來，讓使用者能清除後重設（不要讓整個券商清單打不開）
+  // List the broker even if its config is corrupt, so the user can clear it and set it up again (don't break the whole broker list)
   const cfg = await readConfig(b).catch(() => ({ paused: '設定檔損壞，請按「清除儲存的金鑰」後重新連線' }))
   return { id: b.id, name: b.name, sdk: await Promise.resolve().then(() => sdkVersion(b)).catch(() => null), connected: !!cfg, since: cfg?.since, lastSync: cfg?.lastSync, paused: cfg?.paused, today: ctx.today() }
 }
@@ -193,7 +193,7 @@ async function pickFile({ title, name, extensions }) {
   return canceled ? null : filePaths[0]
 }
 
-// 回傳 { ok } 或 { error }，renderer 才拿得到乾淨的錯誤訊息
+// Return { ok } or { error } so the renderer gets a clean error message
 const handle = (channel, fn) => ipcMain.handle(channel, async (_e, ...args) => {
   try {
     return { ok: await fn(...args) }
@@ -208,7 +208,7 @@ export function initBrokers(context) {
   handle('broker:status', id => status(broker(id)))
   handle('broker:install-sdk', async id => {
     const b = broker(id)
-    idle(id) // 同步中就別讓人白選一次檔案
+    idle(id) // Don't make the user pick a file for nothing while a sync is running
     const file = await pickFile({ title: `選擇下載的${b.sdk.label}`, name: b.sdk.label, extensions: ['zip', 'tgz', 'gz'] })
     return file && exclusive(id, 'install', () => installSdk(b, file))
   })
@@ -220,7 +220,7 @@ export function initBrokers(context) {
     return rm(configFile(broker(id)), { force: true })
   })
   setTimeout(autoSync, 5_000)
-  setInterval(autoSync, 3_600_000) // 每小時看一次今天同步了沒
+  setInterval(autoSync, 3_600_000) // Check every hour whether today's sync has run
 }
 
 export function openSetup() {
@@ -231,7 +231,7 @@ export function openSetup() {
     title: '連接證券帳戶',
     webPreferences: { preload: join(import.meta.dirname, 'preload.cjs') },
   })
-  // 說明裡的連結用預設瀏覽器開
+  // Open links from the instructions in the default browser
   setupWin.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url)
     return { action: 'deny' }
