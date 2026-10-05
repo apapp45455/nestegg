@@ -1,5 +1,5 @@
-// 永豐金證券（Shioaji）：用官方的 shioaji 命令列程式在本機開一個暫時的 API 伺服器，只呼叫帳務查詢，查完就關掉。
-// 共用的流程在 ../brokers.js；帳務資料怎麼拼成帳本列在 ../../sync/sinopac.js。
+// Sinopac Securities (Shioaji): runs a temporary local API server with the official shioaji command-line program, calls only account queries, then shuts it down.
+// The shared flow lives in ../brokers.js; how account data becomes ledger rows lives in ../../sync/sinopac.js.
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
@@ -11,9 +11,9 @@ const BIN = process.platform === 'win32' ? 'shioaji.exe' : 'shioaji'
 const OS = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[process.platform]
 const ARCH = { arm64: 'aarch64', x64: 'x86_64' }[process.arch]
 const wait = ms => new Promise(r => setTimeout(r, ms))
-// 要使用者處理才會好的錯誤（登入失敗、權限不對、模擬環境）：共用流程會因此暫停自動同步，免得帳號被鎖
+// Errors only the user can fix (login failure, wrong permissions, simulation mode): the shared flow pauses auto sync so the account doesn't get locked
 const needsUser = message => Object.assign(new Error(message), { needsUser: true })
-// 錯誤訊息明確是認證失敗才算登入失敗（自動同步暫停）；比對不到、或提到逾時／網路／維護的，一律當暫時問題下個小時再試
+// Only messages that clearly say authentication failed count as a login failure (auto sync pauses); anything else, or anything mentioning timeouts, the network or maintenance, is treated as temporary and retried next hour
 const AUTH_ERROR = /invalid (api[ _-]?key|secret|token|credential)|unauthori[sz]ed|authentication failed|login failed|\b40[13]\b|金鑰(錯誤|無效)|認證失敗|登入失敗/i
 const TRANSIENT = /time(d)? ?out|network|unreachable|connection|maintenance|維護|逾時|斷線/i
 
@@ -24,8 +24,8 @@ const freePort = () => new Promise((resolve, reject) => {
   })
 })
 
-// 子程序的環境變數：使用者自己設的 SJ_CA_PATH、SJ_CA_PASSWD、SJ_API_KEY… 一個都不帶進去，
-// 只放 NestEgg 自己的。沒有憑證，Shioaji 就不能下單。
+// Environment for the child process: none of the user's own SJ_CA_PATH, SJ_CA_PASSWD, SJ_API_KEY… are passed through,
+// only NestEgg's own. Without a certificate, Shioaji can't place orders.
 export const serverEnv = (creds, port, home, env = process.env) => ({
   ...Object.fromEntries(Object.entries(env).filter(([k]) => !k.toUpperCase().startsWith('SJ_'))),
   SJ_API_KEY: creds.apiKey,
@@ -33,23 +33,23 @@ export const serverEnv = (creds, port, home, env = process.env) => ({
   SJ_PRODUCTION: 'true',
   SJ_HTTP_ADDR: `127.0.0.1:${port}`,
   SJ_UDS_DISABLE: 'true',
-  SJ_HTTP_CORS: 'false', // 不讓瀏覽器裡的網頁呼叫這個暫時的伺服器
-  SJ_HOME_PATH: join(home, 'shioaji'), // 登入權杖、商品檔放在 NestEgg 的資料夾，不跟你自己的 Shioaji 混在一起
+  SJ_HTTP_CORS: 'false', // Don't let web pages in a browser call this temporary server
+  SJ_HOME_PATH: join(home, 'shioaji'), // Login tokens and contract files stay in NestEgg's folder, separate from the user's own Shioaji
 })
 
 export default {
   id: 'sinopac',
   name: '永豐金證券',
-  snapshot: true, // 查得到的是目前持倉與已實現損益，每次同步取代上次的那批（見 sync/sinopac.js）
+  snapshot: true, // Only current positions and realized P&L are available, so each sync replaces the previous batch (see sync/sinopac.js)
   sdk: {
     label: 'Shioaji 命令列程式',
     version: async dir => (existsSync(join(dir, BIN)) ? (await readFile(join(dir, 'version.txt'), 'utf8')).trim() : null),
-    // GitHub 下載的 shioaji-v1.7.7-macOS-aarch64.tar.gz（Windows 是 .zip），解開就是一個執行檔
+    // The GitHub download shioaji-v1.7.7-macOS-aarch64.tar.gz (.zip on Windows) extracts to a single executable
     async unpack(tmp) {
       const files = await readdir(tmp)
       const archive = files.find(f => /^shioaji-v\d/.test(f)) ?? ''
       if (archive && !archive.includes(`-${OS}-`)) throw new Error(`這是給其他作業系統的版本，請下載檔名有「${OS}」的那個`)
-      // Apple 晶片可以跑 x86_64 版（Rosetta），反過來不行
+      // Apple silicon can run the x86_64 build (Rosetta), but not the other way round
       if (archive.includes('-aarch64') && ARCH !== 'aarch64') throw new Error(`這是 Apple 晶片／ARM 的版本，這台電腦請下載檔名有「${ARCH}」的那個`)
       if (!files.includes(BIN)) throw new Error(`這不是 Shioaji 命令列程式的壓縮檔（裡面找不到 ${BIN}）`)
       const dir = join(tmp, 'cli')
@@ -66,11 +66,11 @@ export default {
     return creds
   },
 
-  // 開一個只聽本機、隨機埠的 Shioaji 伺服器
+  // Start a Shioaji server that listens only on localhost, on a random port
   async server(bin, creds, home) {
     const port = await freePort()
-    // Shioaji 每次啟動都在 observability/ 開一個以位址命名的資料夾，埠每次不同，不清會越積越多；只留這一次的。
-    // 清不掉（例如 Windows 上檔案還被占用）就下次再清，不擋同步
+    // Every Shioaji start creates a folder named after its address in observability/; the port changes each time, so they pile up unless cleared. Keep only this run's.
+    // If it can't be removed (for example, a file still in use on Windows), try again next time instead of blocking the sync
     await rm(join(home, 'shioaji', 'observability'), { recursive: true, force: true }).catch(() => {})
     const child = spawn(bin, ['server', 'start', '--production', '--no-open'], {
       cwd: home,
@@ -84,15 +84,15 @@ export default {
       child.once('error', e => { dead = true; reject(needsUser(`無法執行 Shioaji，請重新安裝：${e.message}`)) })
       child.once('exit', code => {
         dead = true
-        const detail = `（代碼 ${code}）：${log.trim() || '沒有訊息'}` // 訊息裡的金鑰由共用流程遮掉
+        const detail = `（代碼 ${code}）：${log.trim() || '沒有訊息'}` // The shared flow masks keys in this message
         reject(AUTH_ERROR.test(log) && !TRANSIENT.test(log) ? needsUser(`Shioaji 登入失敗${detail}`) : new Error(`Shioaji 啟動失敗，下個小時再試${detail}`))
       })
     })
-    exited.catch(() => {}) // 查完後正常關掉也會走到這裡
+    exited.catch(() => {}) // A normal shutdown after the queries also ends up here
     const url = `http://127.0.0.1:${port}`
     const ready = (async () => {
       for (const end = Date.now() + 90_000; !dead && Date.now() < end; await wait(500)) {
-        // 每次檢查最多等 2 秒：埠被別的程式佔走、或 Shioaji 卡住不回應時，90 秒期限才有用，同步鎖也才會放開
+        // Wait at most 2 seconds per check: if another program took the port or Shioaji hangs, this is what makes the 90-second deadline work and releases the sync lock
         const health = await fetch(`${url}/api/v1/health`, { signal: AbortSignal.timeout(2_000) }).then(r => r.json()).catch(() => null)
         if (health?.status === 'healthy') return
       }
@@ -110,7 +110,7 @@ export default {
   async fetch({ creds, from, to, home, sdkDir }) {
     const { url, stop } = await this.server(join(sdkDir, BIN), creds, home)
     try {
-      // 只用帳務查詢的 API；account_type S 是證券帳戶
+      // Only account query APIs are used; account_type S is the securities account
       const call = async (path, body) => {
         const res = await fetch(url + path, {
           ...(body && { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account_type: 'S', ...body }) }),
@@ -136,7 +136,7 @@ export default {
       for (const pl of profitLoss) profitDetails[pl.id] = await list('/api/v1/portfolio/profit_loss_detail', { detail_id: pl.id, unit: 'Share' })
 
       const { rows, warnings, skipped } = toRows({ positions, positionDetails, profitLoss, profitDetails })
-      return { rows, accounts: 1, warnings, skipped } // ponytail: 只查預設的證券帳戶；有多個證券帳戶的人再加帳戶選擇
+      return { rows, accounts: 1, warnings, skipped } // ponytail: only the default securities account is queried; add account selection for people with several
     } finally {
       stop()
     }

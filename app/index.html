@@ -22,7 +22,7 @@
     #pet { image-rendering: pixelated; cursor: grab; animation: bounce 1.2s ease-in-out infinite; }
     #pet:active { cursor: grabbing; }
     #pet.egg, #pet.none { transform-origin: 50% 100%; animation-name: wobble; animation-duration: 2.4s; }
-    /* 後面的規則優先：颱風發抖 > 下雨縮著、餓、難過時慢下來 > 開心跳快一點 */
+    /* Later rules win: typhoon shiver > huddled in the rain, slower when hungry or sad > faster bounce when happy */
     #pet.happy { animation-duration: .8s; }
     #pet.hungry, #pet.sad { animation-duration: 2.4s; }
     #pet.rain { animation-duration: 3s; }

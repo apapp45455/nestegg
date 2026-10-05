@@ -1,4 +1,4 @@
-/* 設定視窗共用樣式（券商選擇頁、各券商的設定頁、寵物設定） */
+/* Shared styles for settings windows (broker picker, each broker's setup page, pet settings) */
 :root {
   color-scheme: light dark;
   --bg: #fffdf6; --card: #ffffff; --text: #3b2a1a; --muted: #75614b; --line: #ead9bd;

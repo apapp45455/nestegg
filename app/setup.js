@@ -1,4 +1,4 @@
-// 設定精靈：沒有 data-broker 的是券商選擇頁，有的是那家券商的設定頁（欄位名稱就是要送出的欄位）
+// Setup wizard: a page without data-broker is the broker picker; with it, it's that broker's setup page (field names are the fields submitted)
 const $ = id => document.getElementById(id)
 const id = document.body.dataset.broker
 
@@ -42,7 +42,7 @@ async function render() {
   form.elements.since.value ||= new Date(Date.parse(s.today) - 365 * 864e5).toISOString().slice(0, 10)
 }
 
-// 按鈕在等待時鎖住並換字，避免重複送出
+// Disable the button and change its label while waiting, to prevent double submits
 async function busy(button, label, fn) {
   const text = button.textContent
   button.disabled = true
@@ -57,7 +57,7 @@ async function busy(button, label, fn) {
 
 function report({ ok, error }) {
   if (error) return show(error, 'error')
-  const warn = ok.warnings.length ? `\n有 ${ok.warnings.length} 則提醒：\n${ok.warnings.join('\n')}` : '' // 富邦是查詢失敗的期間，永豐是略過的紀錄
+  const warn = ok.warnings.length ? `\n有 ${ok.warnings.length} 則提醒：\n${ok.warnings.join('\n')}` : '' // For Fubon these are periods whose query failed; for Sinopac, skipped records
   show(`同步完成：${ok.accounts} 個證券帳戶，新增 ${ok.added} 筆紀錄。${warn}`, 'success')
 }
 
@@ -99,7 +99,7 @@ function initBrokerPage() {
   $('disconnect').onclick = async () => {
     if (!confirm(`確定要清除儲存的${name}金鑰嗎？之後要重新設定才能同步。`)) return
     const { error } = await window.broker.disconnect(id)
-    if (error) return show(error, 'error') // 例如同步中被擋下：金鑰還在，不能說已清除
+    if (error) return show(error, 'error') // For example, refused during a sync: the keys are still there, so don't claim they were cleared
     show('已清除儲存的金鑰。已同步進帳本的紀錄會保留。')
     await render()
   }

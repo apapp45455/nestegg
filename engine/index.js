@@ -1,29 +1,29 @@
-// 寵物引擎：純函式，沒有隱藏狀態。同一份帳本 + 同一天 + 同一份行情 = 同一隻寵物。
-// 成長只看你控制的事（時間、投入）；市場漲跌只影響天氣、心情、毛色，不影響成長與健康。
+// Pet engine: pure functions, no hidden state. Same ledger + same day + same market data = same pet.
+// Growth only depends on what the user controls (time, contributions); market moves only affect weather, mood and fur, never growth or health.
 
 export const HEADER = 'date,symbol,action,shares,amount,fee'
 const ACTIONS = ['buy', 'sell', 'dividend']
 
-// 數值表（Phase 0）：調數值只改這裡。孵化、長大只看時間，不開放使用者調整（調了養寵物就沒有意義）
-export const HATCH_DAYS = 7 // 第一次買入後幾天孵化
-export const ADULT_DAYS = 365 // 幾天長成成年
+// Rules table (Phase 0): tune the numbers here. Hatching and growing up depend only on time and aren't user-adjustable (adjusting them would make raising the pet meaningless)
+export const HATCH_DAYS = 7 // Days after the first buy until hatching
+export const ADULT_DAYS = 365 // Days until adulthood
 
-// 使用者在「寵物設定」可以調的（存在 settings.json）；value 是預設值
+// What users can adjust in pet settings (stored in settings.json); value is the default
 export const SETTINGS = {
-  period: { value: 31, min: 7, max: 92, step: 1 }, // 投入週期（天）：每月扣款 31、每週 7、每季 92
-  grace: { value: 7, min: 0, max: 30, step: 1 }, // 扣款日遇假日、同步延遲的寬限（天）
-  typhoon: { value: 3, min: 0.5, max: 10, step: 0.5 }, // 加權指數單日跌幅 ≥ 幾 % → 颱風（其餘下跌 → 下雨）
-  mood: { value: 1, min: 0.1, max: 10, step: 0.1 }, // 持股單日漲跌 ± 幾 % 以上 → 開心 / 難過
-  fur: { value: 5, min: 0.5, max: 50, step: 0.5 }, // 持股市值相對成本 ± 幾 % 以上 → 毛色發亮 / 黯淡
-  // 本金到幾萬元長大一級（Lv1 → Lv5）；每個人的資產規模差很多，所以可以調
+  period: { value: 31, min: 7, max: 92, step: 1 }, // Contribution period (days): monthly 31, weekly 7, quarterly 92
+  grace: { value: 7, min: 0, max: 30, step: 1 }, // Grace days for debit dates that fall on holidays and late syncs
+  typhoon: { value: 3, min: 0.5, max: 10, step: 0.5 }, // TAIEX one-day drop of at least this % → typhoon (other drops → rain)
+  mood: { value: 1, min: 0.1, max: 10, step: 0.1 }, // Holdings' one-day change of at least ± this % → happy / sad
+  fur: { value: 5, min: 0.5, max: 50, step: 0.5 }, // Holdings' market value at least ± this % from cost → shiny / dull fur
+  // Principal (in units of NT$10,000) needed for each size level (Lv1 → Lv5); adjustable because people's asset levels differ widely
   lv2: { value: 3, min: 0.1, max: 10_000, step: 0.1 },
   lv3: { value: 10, min: 0.1, max: 10_000, step: 0.1 },
   lv4: { value: 30, min: 0.1, max: 10_000, step: 0.1 },
   lv5: { value: 100, min: 0.1, max: 10_000, step: 0.1 },
 }
 export const LEVELS = ['lv2', 'lv3', 'lv4', 'lv5']
-// 設定檔可能被手改壞：每一項不是數字、超出範圍、天數不是整數，就用預設值；
-// 體型門檻要一級比一級高，不然四個一起回到預設
+// The settings file may be edited badly by hand: any value that isn't a number, is out of range, or is a non-integer day count falls back to its default;
+// size thresholds must increase level by level, otherwise all four fall back to the defaults
 export function parseSettings(input) {
   const s = Object.fromEntries(Object.entries(SETTINGS).map(([key, { value, min, max, step }]) => {
     const v = input?.[key]
@@ -38,7 +38,7 @@ const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / DAY)
 export const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s)) && new Date(s).toISOString().startsWith(s)
 export const addDays = (date, n) => new Date(Date.parse(date) + n * DAY).toISOString().slice(0, 10)
 
-// ponytail: 不支援引號欄位；schema 的欄位本來就不含逗號
+// ponytail: quoted fields aren't supported; no field in the schema contains commas
 export function parseLedger(text) {
   const lines = text.replace(/^﻿/, '').split(/\r?\n/)
   if (lines[0].replace(/\s/g, '') !== HEADER) throw new Error(`第 1 行應為標頭：${HEADER}`)
@@ -55,13 +55,13 @@ export function parseLedger(text) {
 }
 
 const toLine = r => [r.date, r.symbol, r.action, r.shares, r.amount, r.fee].join(',')
-// 同一天先算買進、再算股利、最後算賣出：當沖（甚至先賣後買）的賣出才不會因為「那時還沒持股」被略過，留下幽靈持股
+// Within a day, apply buys, then dividends, then sells: otherwise a day trade's sell (even sell-before-buy) is skipped as "nothing held yet", leaving phantom shares
 const SAME_DAY = { buy: 0, dividend: 1, sell: 2 }
 const byDate = (a, b) => a.date.localeCompare(b.date) || SAME_DAY[a.action] - SAME_DAY[b.action]
 
 export const toCsv = rows => [HEADER, ...rows.map(toLine)].join('\n') + '\n'
 
-// rows 裡沒被 against 對到的那些（多重集合：同一筆出現兩次就要對到兩次）
+// The rows not matched by `against` (as a multiset: a row that appears twice must be matched twice)
 function unmatched(rows, against) {
   const count = new Map()
   for (const r of against) count.set(toLine(r), (count.get(toLine(r)) ?? 0) + 1)
@@ -72,20 +72,20 @@ function unmatched(rows, against) {
   })
 }
 
-// 合併匯入：重複匯入同一份檔案不會多出資料，同一天兩筆一樣的買入也不會被吃掉
+// Merge an import: importing the same file again adds nothing, and two identical buys on the same day are both kept
 export const mergeLedger = (existing, incoming) => [...existing, ...unmatched(incoming, existing)].sort(byDate)
 
-// 拿掉上次同步寫進來的那批（每筆只拿掉一次；已經被手動刪掉的就略過）
+// Remove the batch the last sync wrote (each row once; rows already deleted by hand are skipped)
 export const removeRows = (ledger, rows) => unmatched(ledger, rows)
 
-// market（可省略）：{ date, indexChange: 加權指數漲跌 %, prices: { 代號: { close, change } } }
+// market (optional): { date, indexChange: TAIEX change in %, prices: { code: { close, change } } }
 function marketMood(holdings, market, s) {
   if (!market) return { weather: null, mood: null, fur: null }
   const weather = market.indexChange >= 0 ? 'sunny' : market.indexChange > -s.typhoon ? 'rain' : 'typhoon'
   let value = 0, prev = 0, cost = 0
   for (const [symbol, h] of holdings) {
     const p = market.prices[symbol]
-    if (!p || !h.shares) continue // 查不到收盤價的（例如海外資產）不列入
+    if (!p || !h.shares) continue // Holdings without a closing price (for example, overseas assets) are left out
     value += h.shares * p.close
     prev += h.shares * (p.close - p.change)
     cost += h.cost
@@ -100,13 +100,13 @@ function marketMood(holdings, market, s) {
   }
 }
 
-// settings（可省略）：使用者的寵物設定，見 SETTINGS；缺的、壞的用預設值
+// settings (optional): the user's pet settings, see SETTINGS; missing or bad values use the defaults
 export function evaluate(ledger, today, market = null, settings = {}) {
   const s = parseSettings(settings)
   const holdings = new Map() // symbol → { shares, cost }
   let firstBuy, lastBuy
   for (const r of [...ledger].sort(byDate)) {
-    if (r.date > today) break // 可回放：只看 today 以前的紀錄
+    if (r.date > today) break // Replayable: only records up to today count
     const h = holdings.get(r.symbol) ?? { shares: 0, cost: 0 }
     if (r.action === 'buy') {
       h.shares += r.shares
@@ -114,7 +114,7 @@ export function evaluate(ledger, today, market = null, settings = {}) {
       firstBuy ??= r.date
       lastBuy = r.date
     } else if (r.action === 'sell' && h.shares > 0) {
-      // 本金按平均成本扣除，賣在高點或低點都不影響剩下的體型
+      // Principal is reduced at average cost, so selling high or low doesn't change the remaining size
       const sold = Math.min(r.shares, h.shares)
       h.cost -= (h.cost * sold) / h.shares
       h.shares -= sold
@@ -130,8 +130,8 @@ export function evaluate(ledger, today, market = null, settings = {}) {
   return {
     stage: age < HATCH_DAYS ? 'egg' : age < ADULT_DAYS ? 'baby' : 'adult',
     age,
-    size: 1 + LEVELS.filter(key => principal >= Math.round(s[key] * 10_000)).length, // 手改設定檔的 0.14 萬 × 10,000 會是 1400.0000000000002
-    satiety: Math.min(3, Math.max(0, 3 - missed)), // 3 = 飽，漏一期少一碗，最低 0（不會死）
+    size: 1 + LEVELS.filter(key => principal >= Math.round(s[key] * 10_000)).length, // A hand-edited 0.14 × 10,000 would be 1400.0000000000002
+    satiety: Math.min(3, Math.max(0, 3 - missed)), // 3 = full, one bowl less per missed period, minimum 0 (it never dies)
     ...env,
   }
 }

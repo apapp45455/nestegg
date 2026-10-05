@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('nestegg', {
   setSolid: solid => ipcRenderer.send('solid', solid),
 })
 
-// 設定精靈用；第一個參數是券商 id（例如 'fubon'），每個呼叫回傳 { ok } 或 { error }
+// For the setup wizard; the first argument is the broker id (for example 'fubon'), and every call returns { ok } or { error }
 const invoke = channel => (...args) => ipcRenderer.invoke(channel, ...args)
 contextBridge.exposeInMainWorld('broker', {
   list: invoke('broker:list'),
@@ -20,5 +20,5 @@ contextBridge.exposeInMainWorld('broker', {
   disconnect: invoke('broker:disconnect'),
 })
 
-// 寵物設定視窗用：get 回傳 { values, limits }，set 存檔後回傳實際採用的值（不合理的會換成預設）
+// For the pet settings window: get returns { values, limits }; set saves and returns the values actually used (invalid ones become defaults)
 contextBridge.exposeInMainWorld('petSettings', { get: invoke('settings:get'), set: invoke('settings:set') })

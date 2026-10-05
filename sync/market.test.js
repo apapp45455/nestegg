@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseMarket } from './market.js'
 
-// 欄位與格式照抄 2026-10-02 的實際 API 回應
+// Fields and formats copied from the real API responses of 2026-10-02
 const index = [
   { 日期: '1151002', 指數: '寶島股價指數', 漲跌: '+', 漲跌百分比: '0.37' },
   { 日期: '1151002', 指數: '發行量加權股價指數', 漲跌: '-', 漲跌百分比: '1.25' },
