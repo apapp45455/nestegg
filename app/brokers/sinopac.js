@@ -17,11 +17,6 @@ const needsUser = message => Object.assign(new Error(message), { needsUser: true
 const AUTH_ERROR = /invalid (api[ _-]?key|secret|token|credential)|unauthori[sz]ed|authentication failed|login failed|\b40[13]\b|金鑰(錯誤|無效)|認證失敗|登入失敗/i
 const TRANSIENT = /time(d)? ?out|network|unreachable|connection|maintenance|維護|逾時|斷線/i
 
-// Shioaji 的錯誤訊息會帶出金鑰（「key: <API Key> not exist」，請求編號裡還有前 10 碼）。
-// 錯誤訊息會顯示在畫面上、也會寫進設定檔的暫停原因，所以先遮掉。短於 8 碼的不算金鑰（測試用）
-export const redact = (text, keys) => keys.filter(k => k.length >= 8).reduce(
-  (t, k) => t.replaceAll(k, '***').replace(/[A-Za-z0-9]{8,}/g, w => (k.includes(w) ? '***' : w)), text)
-
 const freePort = () => new Promise((resolve, reject) => {
   const srv = createServer().once('error', reject).listen(0, '127.0.0.1', () => {
     const { port } = srv.address()
@@ -74,8 +69,9 @@ export default {
   // 開一個只聽本機、隨機埠的 Shioaji 伺服器
   async server(bin, creds, home) {
     const port = await freePort()
-    // Shioaji 每次啟動都在 observability/ 開一個以位址命名的資料夾，埠每次不同，不清會越積越多；只留這一次的
-    await rm(join(home, 'shioaji', 'observability'), { recursive: true, force: true })
+    // Shioaji 每次啟動都在 observability/ 開一個以位址命名的資料夾，埠每次不同，不清會越積越多；只留這一次的。
+    // 清不掉（例如 Windows 上檔案還被占用）就下次再清，不擋同步
+    await rm(join(home, 'shioaji', 'observability'), { recursive: true, force: true }).catch(() => {})
     const child = spawn(bin, ['server', 'start', '--production', '--no-open'], {
       cwd: home,
       windowsHide: true,
@@ -88,7 +84,7 @@ export default {
       child.once('error', e => { dead = true; reject(needsUser(`無法執行 Shioaji，請重新安裝：${e.message}`)) })
       child.once('exit', code => {
         dead = true
-        const detail = `（代碼 ${code}）：${redact(log.trim(), [creds.apiKey, creds.secretKey]) || '沒有訊息'}`
+        const detail = `（代碼 ${code}）：${log.trim() || '沒有訊息'}` // 訊息裡的金鑰由共用流程遮掉
         reject(AUTH_ERROR.test(log) && !TRANSIENT.test(log) ? needsUser(`Shioaji 登入失敗${detail}`) : new Error(`Shioaji 啟動失敗，下個小時再試${detail}`))
       })
     })

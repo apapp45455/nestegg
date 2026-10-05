@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import sinopac, { redact, serverEnv } from './sinopac.js'
+import sinopac, { serverEnv } from './sinopac.js'
 
 const creds = { apiKey: 'k', secretKey: 's' }
 
@@ -49,23 +49,15 @@ require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).liste
     }
     await assert.rejects(sinopac.server(bin, { apiKey: 'fail', secretKey: 'Error: invalid api key' }, dir), e => e.needsUser === true)
     await assert.rejects(sinopac.server(join(dir, 'missing'), creds, dir), /無法執行 Shioaji/)
-    // 金鑰不存在：要使用者處理，而且訊息裡看不到金鑰（這段訊息會寫進設定檔的暫停原因）
-    const key = '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb'
-    await assert.rejects(sinopac.server(bin, { apiKey: key, secretKey: 's' }, dir), e =>
-      e.needsUser === true && /not exist/.test(e.message) && !e.message.includes(key.slice(0, 10)))
+    // 金鑰不存在（真的 Shioaji 的訊息）：要使用者處理。訊息裡的金鑰由共用流程遮掉，見 e2e
+    await assert.rejects(sinopac.server(bin, { apiKey: '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb', secretKey: 's' }, dir), e =>
+      e.needsUser === true && /not exist/.test(e.message))
     // 啟動兩次（埠不同）只留下最後一次的 observability 資料夾
     for (let i = 0; i < 2; i++) (await sinopac.server(bin, creds, dir)).stop()
     assert.equal(readdirSync(join(dir, 'shioaji', 'observability')).length, 1)
   } finally {
     delete process.env.SJ_CA_PATH
   }
-})
-
-test('sinopac: 遮掉訊息裡的金鑰與金鑰片段，其他字不動', () => {
-  const key = '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb'
-  assert.equal(redact(`Request #P2P/PYAPI/${key.slice(0, 10)}/1005 detail: key: ${key} not exist.`, [key, 'short']),
-    'Request #P2P/PYAPI/***/1005 detail: key: *** not exist.')
-  assert.equal(redact('Authentication failed: invalid secret', [key]), 'Authentication failed: invalid secret')
 })
 
 // 安裝：下載的壓縮檔解開後的資料夾 → 檢查作業系統、CPU、有沒有執行檔，記下版本
