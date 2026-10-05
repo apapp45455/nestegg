@@ -2,7 +2,7 @@
 // 共用的流程在 ../brokers.js；帳務資料怎麼拼成帳本列在 ../../sync/sinopac.js。
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { toRows } from '../../sync/sinopac.js'
@@ -69,6 +69,9 @@ export default {
   // 開一個只聽本機、隨機埠的 Shioaji 伺服器
   async server(bin, creds, home) {
     const port = await freePort()
+    // Shioaji 每次啟動都在 observability/ 開一個以位址命名的資料夾，埠每次不同，不清會越積越多；只留這一次的。
+    // 清不掉（例如 Windows 上檔案還被占用）就下次再清，不擋同步
+    await rm(join(home, 'shioaji', 'observability'), { recursive: true, force: true }).catch(() => {})
     const child = spawn(bin, ['server', 'start', '--production', '--no-open'], {
       cwd: home,
       windowsHide: true,
@@ -81,7 +84,7 @@ export default {
       child.once('error', e => { dead = true; reject(needsUser(`無法執行 Shioaji，請重新安裝：${e.message}`)) })
       child.once('exit', code => {
         dead = true
-        const detail = `（代碼 ${code}）：${log.trim() || '沒有訊息'}`
+        const detail = `（代碼 ${code}）：${log.trim() || '沒有訊息'}` // 訊息裡的金鑰由共用流程遮掉
         reject(AUTH_ERROR.test(log) && !TRANSIENT.test(log) ? needsUser(`Shioaji 登入失敗${detail}`) : new Error(`Shioaji 啟動失敗，下個小時再試${detail}`))
       })
     })
