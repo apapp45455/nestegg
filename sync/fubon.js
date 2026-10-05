@@ -1,10 +1,7 @@
 // 富邦新一代 API 成交紀錄 → NestEgg 帳本列。純函式，不碰網路也不碰 SDK。
+import { addDays } from '../engine/index.js'
 
-const DAY = 864e5
 export const WINDOW_DAYS = 30 // stock.filledHistory 單次最多查 30 天
-
-const iso = t => new Date(t).toISOString().slice(0, 10)
-export const addDays = (date, n) => iso(Date.parse(date) + n * DAY)
 
 // [from, to] 切成每段最多 30 天，格式為 SDK 要的 YYYYMMDD
 export function dateWindows(from, to) {
