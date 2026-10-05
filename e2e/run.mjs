@@ -52,7 +52,7 @@ process.on('uncaughtException', e => crashes.push(e.message))
 process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
-await import('../app/main.js')
+const { openSettings } = await import('../app/main.js')
 const { openSetup, syncSaved } = await import('../app/brokers.js') // syncSaved 直接呼叫＝自動同步那條路
 const { default: sinopac } = await import('../app/brokers/sinopac.js')
 let shioajiStops = 0
@@ -306,6 +306,33 @@ async function runAll() {
     const s = await until('state', v => v?.weather, '行情狀態')
     assert.deepEqual([s.weather, s.mood, s.fur], ['sunny', 'happy', 'shiny'])
     assert.equal(await page('sky.hidden'), false)
+  })
+
+  await test('寵物設定：改了就存、寵物馬上跟著變；超出範圍的不存；恢復預設', async () => {
+    openSettings()
+    const settings = () => windowAt('/settings.html')
+    const file = join(DATA, 'settings.json')
+    await until('document.querySelector("[name=mood]").value', v => v === '1', '設定載入', 15_000, settings)
+    const set = (name, value) => page(`(el => { el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event('change', { bubbles: true })) })(document.querySelector('[name=${name}]')); 0`, settings())
+    // 持股今天 +1.8%：門檻調到 2% 就不算開心了
+    await set('mood', '2')
+    await until('state.mood', v => v === 'calm', '心情變平靜')
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2 }) // 只存改過的
+    await set('period', '7')
+    await until('JSON.stringify(state)', () => JSON.parse(readFileSync(file, 'utf8')).period === 7, '週期存檔')
+    // 超出範圍：不存、檔案不變
+    await set('fur', '500')
+    await wait(500)
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2, period: 7 })
+    await page('document.getElementById("reset").click()', settings())
+    await until('state.mood', v => v === 'happy', '恢復預設後又開心')
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {})
+    assert.equal(await page('document.querySelector("[name=fur]").value', settings()), '5')
+    // 手改壞的設定檔：讀出來是預設值（寵物用同一個讀法，不會變成「帳本讀取失敗」）
+    writeFileSync(file, '{ 壞掉')
+    assert.equal(await page('window.petSettings.get().then(r => r.values.mood)', settings()), 1)
+    rmSync(file)
+    settings().close()
   })
 
   await test('畫面：寵物真的有畫出來', async () => {

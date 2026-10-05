@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HEADER, parseLedger, mergeLedger, removeRows, toCsv, evaluate } from './index.js'
+import { HEADER, parseLedger, parseSettings, mergeLedger, removeRows, toCsv, evaluate } from './index.js'
 
 const buy = (date, amount, shares = 100, symbol = '0050') => ({ date, symbol, action: 'buy', shares, amount, fee: 0 })
 
@@ -92,4 +92,23 @@ test('market: 漲跌不影響成長與健康；沒行情或查不到價格時是
   const unknown = evaluate(l, '2026-10-03', { ...crash, prices: {} })
   assert.deepEqual([unknown.weather, unknown.mood, unknown.fur], ['typhoon', null, null])
   assert.equal(evaluate([], '2026-10-03', crash).weather, 'typhoon') // 還沒有蛋也有天氣
+})
+
+test('settings: 週投的人照週算飽足；敏感度調高後小漲跌不影響心情', () => {
+  const l = [buy('2026-01-01', 10_000, 100)]
+  assert.equal(evaluate(l, '2026-01-20').satiety, 3) // 預設每月：19 天還很飽
+  assert.equal(evaluate(l, '2026-01-20', null, { period: 7, grace: 2 }).satiety, 1) // 每週、寬限 2 天：漏了兩期
+  const m = { date: '2026-01-19', indexChange: -2, prices: { '0050': { close: 101.5, change: 1.5 } } } // 單日 +1.5%
+  assert.deepEqual(['weather', 'mood'].map(k => evaluate(l, '2026-01-20', m)[k]), ['rain', 'happy'])
+  assert.deepEqual(['weather', 'mood'].map(k => evaluate(l, '2026-01-20', m, { typhoon: 1.5, mood: 2 })[k]), ['typhoon', 'calm'])
+  assert.equal(evaluate(l, '2026-01-20', m, { fur: 1 }).fur, 'shiny') // 成本 100 → 101.5，+1.5%
+})
+
+test('settings: 手改壞的設定（字串、超出範圍、天數有小數）每一項各自回到預設', () => {
+  const defaults = parseSettings()
+  assert.deepEqual(defaults, { period: 31, grace: 7, typhoon: 3, mood: 1, fur: 5 })
+  assert.deepEqual(parseSettings({ period: '7', grace: -1, typhoon: 99, mood: 2, fur: null }), { ...defaults, mood: 2 })
+  assert.equal(parseSettings({ period: 7.5 }).period, 31)
+  assert.equal(parseSettings({ mood: 0.5 }).mood, 0.5) // 百分比可以有小數
+  assert.deepEqual(parseSettings('壞掉的檔案'), defaults)
 })

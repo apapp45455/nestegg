@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>寵物設定</title>
+  <link rel="stylesheet" href="setup.css">
+  <style>
+    fieldset { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px 16px 14px; margin: 0; display: grid; gap: 12px; }
+    legend { font-weight: 700; padding: 0 4px; }
+    .inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 400; }
+    .inline input { width: 5.5em; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>寵物設定</h1>
+    <p>改了就會存，寵物馬上跟著變。</p>
+  </header>
+  <form id="settings" novalidate>
+    <fieldset>
+      <legend>多久投入一次</legend>
+      <label>投入週期
+        <select name="period">
+          <option value="7">每週</option>
+          <option value="14">每兩週</option>
+          <option value="31">每月</option>
+          <option value="92">每季</option>
+        </select>
+      </label>
+      <label class="inline">超過週期再等 <input name="grace" type="number" inputmode="numeric"> 天才算漏一期</label>
+      <p class="note">扣款日遇到假日、同步晚一點都不會讓寵物餓到。每漏一期少一碗飯，最少 0 碗，不會死掉。</p>
+    </fieldset>
+    <fieldset>
+      <legend>行情有多敏感</legend>
+      <label class="inline">加權指數單日跌 <input name="typhoon" type="number" inputmode="decimal"> % 以上是颱風</label>
+      <label class="inline">持股單日漲跌超過 ± <input name="mood" type="number" inputmode="decimal"> % 會開心或難過</label>
+      <label class="inline">持股市值比成本高或低 <input name="fur" type="number" inputmode="decimal"> % 以上，毛色發亮或黯淡</label>
+      <p class="note">指數沒跌是晴天，跌得不多是下雨。行情只影響天氣、心情、毛色，不影響成長與健康。</p>
+    </fieldset>
+    <p class="note">孵化、長大和體型只看時間與投入的本金，不能調整。</p>
+    <div class="row"><button type="button" id="reset">恢復預設</button></div>
+  </form>
+</main>
+<script src="settings.js"></script>
+</body>
+</html>
