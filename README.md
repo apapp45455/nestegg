@@ -2,6 +2,317 @@
 
 [![CI](https://github.com/apapp45455/nestegg/actions/workflows/ci.yml/badge.svg)](https://github.com/apapp45455/nestegg/actions/workflows/ci.yml)
 
+**[English](#english)** · **[繁體中文](#繁體中文)**
+
+## English
+
+> Raise a desktop pet that grows from your real investment records.
+> Open source, local-only and read-only: your data never leaves your computer. Runs on macOS and Windows.
+
+> [!WARNING]
+> This project is a **toy**, not an investment tool, and nothing in it is investment advice. The pet only reflects your investing *behavior*; it says nothing about whether any security is good or bad.
+
+The app's menus and windows are in Traditional Chinese. This guide gives the Chinese label followed by an English translation, for example "寵物設定…" (Pet settings).
+
+### What is this
+
+The fun of 90s virtual pets was "care × time → a pet that grows into its own shape". NestEgg applies the same idea to investing: every on-time regular contribution and every day you hold for the long term becomes food for your pet.
+
+The pet is a small, transparent, always-on-top window that sits in a corner of your desktop:
+
+- **Drag** it wherever you like
+- **Click** it to see how many days old it is, how big it is and whether it has eaten
+- **Right-click** it to import trades, export a backup, edit the ledger by hand, open pet settings or quit
+
+### Core idea: separate what you control from what the market gives
+
+You can't decide whether the market goes up or down, so it shouldn't decide whether your pet lives or dies. NestEgg only rewards what you control (**discipline, patience and diversification**). Market swings are just the weather your pet lives in.
+
+#### What you control → how the pet grows
+
+| Pet state | Investing behavior | Status |
+|---|---|---|
+| 📏 Size | Total principal you've put in (not market value, so it doesn't shrink in a crash) | ✅ |
+| 🍚 Fullness | Whether your regular contributions are on time; missing one makes it hungry | ✅ |
+| 🎂 Age | Days held; growth stages only come with time and can't be bought | ✅ |
+| 🥗 Balanced diet | How diversified your holdings are; going all-in on one stock is like eating only one food | Planned |
+| 🍬 Too many snacks | Frequent short-term trading, chasing highs and panic selling → tummy ache (but it won't die) | Planned |
+
+#### Current rules
+
+All defaults are defined at the top of [`engine/index.js`](engine/index.js); change them there.
+
+| Rule | Value |
+|---|---|
+| Hatching | 7 days after your first buy: egg → baby |
+| Adulthood | 365 days after your first buy: baby → adult |
+| Size | Principal under NT$30,000 is Lv1; NT$30,000 Lv2, NT$100,000 Lv3, NT$300,000 Lv4, NT$1,000,000 Lv5 |
+| Principal | Purchase amount + fees; a sale removes shares at **average cost**, so the sale price doesn't matter |
+| Fullness | One period = 31 days, plus a 7-day grace period; each missed period costs one bowl (🍚🍚🍚 → minimum 0). **It never starves to death** |
+| Weather | TAIEX up or flat ☀️ sunny; down 🌧️ rain; down 3% or more 🌀 typhoon |
+| Mood | Your holdings up 1% or more on the day 😊 happy (bounces faster, ^ ^ eyes); down 1% or more 😢 sad (droopy eyes, a tear); otherwise calm |
+| Fur | Market value 5% or more above cost ✨ shiny; 5% or more below cost dull; otherwise normal |
+
+> The speech bubble only shows the level, mood and fur, never your amounts or returns, because anyone walking past can see a desktop pet.
+
+Right-click → "寵物設定…" (Pet settings) lets you adjust the **contribution period** (weekly, every two weeks, monthly, quarterly), the **grace days**, the **size thresholds**, and the **thresholds** for weather, mood and fur. The table above shows the defaults. Hatching and adulthood depend only on time and can't be adjusted. Settings are stored in `settings.json` in the NestEgg data folder, which only records values that differ from the defaults.
+
+#### What the market gives → only weather, mood and fur
+
+Price moves only change how the pet looks *today*. They **never affect growth, size or health**. When the market changes the next day, the pet changes with it, and nothing accumulates.
+
+| Environment | Source | Status |
+|---|---|---|
+| ☀️ 🌧️ 🌀 Weather | TAIEX change on the latest trading day. In the rain the pet huddles and barely moves; in a typhoon it shivers | ✅ |
+| 😊 😐 😢 Mood | Your holdings' change on the latest trading day | ✅ |
+| ✨ Fur | Your holdings' market value compared with their cost (unrealized gain or loss) | ✅ |
+| 🍎 Fruit | Drops when you receive a dividend; you can choose to reinvest it (feed it to the pet) | Planned |
+
+#### Evolution branches = investing styles (planned)
+
+After a while, the pet evolves into a different form based on your behavior. **No form is better than another**; they just look different:
+
+- 🌳 **Tree**: long-term regular ETF investing
+- 🐔 **Egg-layer**: mostly collecting dividends
+- 🦔 **Specialist**: a few concentrated individual stocks
+
+#### Life cycle
+
+- The pet **never dies because of losses**
+- Stop contributing for a while → the pet **falls asleep**, and wakes up when you start again (planned)
+- Sell everything → the pet **goes travelling**, and can come back later (planned)
+
+### What NestEgg deliberately doesn't do
+
+- ❌ Leaderboards, performance comparisons or sharing results
+- ❌ Rating or recommending any stock or ETF
+- ❌ Any order or trading features
+- ❌ Cloud accounts or server-side data storage
+- ❌ Ads, referral links or paid unlocks
+
+### Privacy
+
+- All your data lives in a single CSV file on your computer:
+  - macOS: `~/Library/Application Support/NestEgg/ledger.csv`
+  - Windows: `%APPDATA%\NestEgg\ledger.csv`
+- There is no backend server, and no user data is collected
+- Only two things go online:
+  - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**
+  - "證券帳戶同步" (Broker account sync), only if you set it up. It only connects to that broker's own servers (for Sinopac, through a temporary server that the official program runs on your computer)
+- Broker login details (for Fubon: your national ID number, API key and certificate password) are encrypted with the system keychain (macOS Keychain / Windows DPAPI) and stored only on this computer
+
+> [!TIP]
+> Right-click → "匯出備份…" (Export backup) saves a copy of your ledger. The ledger is a plain CSV that any editor can open.
+
+---
+
+### Getting started
+
+#### macOS installer
+
+```bash
+npm install
+npm run dist
+```
+
+This produces `dist/NestEgg-0.1.0-arm64.dmg`. Open it and drag NestEgg into Applications.
+
+> [!NOTE]
+> The installer has no Apple developer signature (that needs a paid account). An installer you build on your own computer opens normally. If you **send it to someone over the internet or AirDrop**, the first time they open it they need to right-click NestEgg in Finder → Open, or click "Open Anyway" in System Settings → Privacy & Security.
+>
+> NestEgg shows up in the Dock. Clicking the icon makes the pet show a status bubble (handy when you can't find it), and right-clicking the icon gives you import, export, broker sync and more.
+>
+> The pet stays on the desktop it's on. When another app is full screen (for example, a video), the pet doesn't cover it, and it comes back when you leave full screen.
+>
+> By default, clicking the wallpaper makes macOS move all windows aside (including the pet) to show the desktop; click the wallpaper again to bring them back. To turn this off, go to System Settings → Desktop & Dock → "Click wallpaper to reveal desktop" and choose "Only in Stage Manager".
+
+#### Run from source
+
+You need [Node.js](https://nodejs.org/) 20 or later. The commands are the same on macOS and Windows:
+
+```bash
+npm install
+npm start
+```
+
+1. The pet appears in the bottom-right corner of the screen (the first `npm start` downloads about 100 MB of Electron)
+2. Right-click → "匯入交易紀錄 CSV…" (Import trades CSV). You can try it with [`example/ledger.csv`](example/ledger.csv)
+3. Or right-click → "在資料夾中顯示帳本" (Show ledger in folder) and edit `ledger.csv` by hand (the pet updates within 10 seconds)
+4. Watch your egg hatch 🐣
+
+Importing the same file again never creates duplicate records, so it's safe to import your broker's full statement every time.
+
+#### Trade record format
+
+```csv
+date,symbol,action,shares,amount,fee
+2026-01-06,0050,buy,160,9600,20
+2026-02-06,0050,buy,155,9610,20
+2026-07-20,0050,dividend,0,1200,0
+```
+
+| Column | Description |
+|---|---|
+| `date` | Trade date, `YYYY-MM-DD` |
+| `symbol` | Security code |
+| `action` | `buy`, `sell` or `dividend` |
+| `shares` | Number of shares (`0` for dividends) |
+| `amount` | Total trade value or dividend amount (NT$) |
+| `fee` | Fees and taxes |
+
+UTF-8 files saved from Excel (with a BOM) and Windows line endings import fine. If something is wrong, it tells you which line, and nothing is half-imported.
+
+#### Fubon Securities auto-sync
+
+Right-click → "證券帳戶同步…" (Broker account sync) → "富邦證券" (Fubon Securities). The setup wizard walks you through each step:
+
+1. Have a Fubon Securities account
+2. On Fubon's "金鑰管理與憑證匯出" (Key management and certificate export) page, apply for a web certificate and export it as a `.pfx` file (TCEM.exe doesn't run on a Mac; the web certificate works)
+3. Download Fubon's Node.js SDK zip and give it to the wizard to install (the SDK belongs to Fubon and has no license that allows redistribution, so it isn't bundled with NestEgg)
+4. In e櫃台 (Fubon's online service counter), sign the "應用程式介面(API)服務申請書暨聲明書" (API service application and declaration), then run the connection test **before 24:00 the same day**:
+
+   ```bash
+   node tools/fubon-connection-check.cjs
+   ```
+
+   It only logs in once with your account password and then logs out, and it stores nothing. Once you see "…此訊息表連線測試成功" ("…this message means the connection test succeeded"), you're done; the API is enabled by 9:00 the next day
+5. Create an API key with **account-query permission only**, so even if it leaks it can't be used to place orders
+6. Once the API is enabled, enter your national ID number, API key and certificate to connect and import your trade history
+
+After that, NestEgg syncs automatically once a day (each sync overlaps the previous one by a week; duplicate records are merged automatically).
+
+- The code only calls API-key login, `stock.filledHistory` (trade history query) and logout. There are **no order-related calls**; see [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
+- Only cash trades and day trades count; margin buying, short selling and securities lending don't count toward principal
+- Fubon's trade history doesn't include fees, so principal comes out slightly low. For exact numbers, import your statement CSV instead (use one source or the other, not both, to avoid duplicates)
+- If auto-sync fails (for example, because the API key expired), it pauses and shows a notice next to the pet, instead of logging in again and again and getting your account locked
+- The first time it syncs on a Mac, macOS asks whether NestEgg may use the keychain; choose "Always Allow"
+
+#### Sinopac Securities auto-sync (experimental)
+
+Right-click → "證券帳戶同步…" (Broker account sync) → "永豐金證券" (Sinopac Securities):
+
+1. Have a Sinopac Securities account
+2. On Sinopac's [API management page](https://www.sinotrade.com.tw/newweb/PythonAPIKey/), add an API key with "行情／資料" (Market data), "帳務" (Account) and "正式環境" (Production) checked. **Don't check "交易" (Trading)**
+3. From [Shioaji's GitHub releases page](https://github.com/Sinotrade/Shioaji/releases/latest), download the command-line program archive for your operating system and give it to the wizard to install
+4. Enter your API key and secret key, then connect and sync
+
+Account queries need no CA certificate, no signed API agreement and no simulated-order test.
+
+- During a sync, the official `shioaji` command-line program runs a temporary API server on your computer (it listens only on 127.0.0.1, on a random port, and shuts down right after the queries). Only account queries are called; see [`app/brokers/sinopac.js`](app/brokers/sinopac.js). No certificate is provided, so placing orders is impossible even if the key had trading permission
+- Sinopac's API can't query past trades, so NestEgg rebuilds them from "current positions + their buy details" and "realized profit and loss + the matching buy details" ([`sync/sinopac.js`](sync/sinopac.js)). Shares you still hold use the position's average cost. Positions are a snapshot, so each sync replaces the whole batch that the previous sync wrote to the ledger
+- Written from Sinopac's public documentation and sample data, and **not yet verified with a real account**. Checked with the real Shioaji 1.7.7 (macOS and Windows builds): the archive contents, startup flags, environment variables and API paths all exist, and a wrong key is recognized as a login failure. The returned data fields can only be confirmed with an account
+
+---
+
+### Architecture
+
+```mermaid
+flowchart LR
+  subgraph local["Your computer"]
+    M["Broker statements / manual entries"] -->|import| L[("ledger.csv")]
+    F["Broker SDK (separate process, queries only)"] -->|daily sync| L
+    L --> E["Pet engine (main process)"]
+    E -->|state| P["Desktop pet window (renderer)"]
+  end
+  T["TWSE / TPEx OpenAPI<br/>public closing prices"] -->|whole table, every 6 hours| E
+```
+
+The pet engine is a **pure function** with no hidden state:
+
+```js
+petState = evaluate(ledger, today, market, settings)
+```
+
+The same data always raises the same pet, so the engine is fully testable and can "replay" the pet's whole life from egg to today (just set `today` to any day). `market` is optional; without it there's no weather, mood or fur, and growth is unaffected. `settings` is optional too; without it the defaults are used.
+
+#### Repository layout
+
+```
+nestegg/
+├── engine/    # Pet rules + CSV parsing (pure JS, no dependencies) and tests
+├── sync/      # External data conversion (pure functions) and tests: broker data → ledger rows, TWSE closing prices → market data
+├── app/       # Electron desktop pet, context menu, pixel art, pet settings, broker setup wizard
+│   └── brokers/   # One adapter per broker
+└── example/   # Sample trade records
+```
+
+#### Tech stack
+
+| Part | Technology |
+|---|---|
+| Engine | JavaScript (ESM), `node:test` |
+| Desktop | Electron (transparent, frameless, always-on-top window) |
+| Graphics | 16×16 pixel art on a canvas, scaled up with CSS |
+| Broker sync | One adapter per broker; Fubon's next-generation API Node.js SDK (downloaded by the user) runs in an Electron utility process |
+
+#### Adding a broker
+
+The shared flow lives in [`app/brokers.js`](app/brokers.js): installing the SDK (it first copies the file to strip the macOS quarantine flag, then unpacks it), encrypting keys with the system keychain, running only one sync at a time, syncing automatically every day, pausing on failure, and merging rows into the ledger without duplicates. Each broker only implements what's different:
+
+| File | Contents |
+|---|---|
+| `sync/<broker>.js` + tests | Broker trade data → ledger rows (a pure function; only cash trades count, and margin and short positions don't count toward principal) |
+| `app/brokers/<broker>.js` | The adapter: `credentials(form)` checks the required fields, and `fetch({ creds, from, to, … })` queries trades and returns `{ rows, accounts, warnings }`. Snapshot brokers (which only report current positions) add `snapshot: true`, and stocks with incomplete data go in the returned `skipped` list so the previous batch is kept. If users have to download an SDK themselves, add `sdk: { label, version, unpack }`; if a certificate file is needed, add `cert` |
+| `app/setup-<broker>.html` | Setup steps and form (the field names are the fields passed to `credentials`; shares `setup.js` and `setup.css`) |
+| `e2e/` | A fake SDK or server, so the end-to-end tests run without a real account |
+
+Then add one line to `BROKERS` in `app/brokers.js` and the broker appears in the broker picker. The rule: **only call login and queries, and never put an order call anywhere in the code**. If the broker offers query-only keys, ask users to create one.
+
+### Development
+
+```bash
+npm test          # Unit tests: engine, sync conversions, window placement
+npm run test:e2e  # End-to-end tests: launches the real app with fake broker SDKs and cached market data, no network
+npm start         # Start the pet
+npm run dist      # Build an installer for the current operating system
+```
+
+#### CI/CD (GitHub Actions)
+
+| Workflow | When it runs | What it does |
+|---|---|---|
+| [`ci.yml`](.github/workflows/ci.yml) | Push to main, every PR | Runs the unit and end-to-end tests on macOS and Windows and builds the installers (downloadable from the Actions page) |
+| [`release.yml`](.github/workflows/release.yml) | Pushing a `v*` tag | Builds the macOS `.dmg` and Windows `.exe` and creates a GitHub Release |
+| [`claude-review.yml`](.github/workflows/claude-review.yml) | Opening or updating a PR | Claude Code reviews the PR against the project rules (read-only, privacy, data safety, cross-platform) and leaves comments |
+
+Claude Code Review needs the repository secret `CLAUDE_CODE_OAUTH_TOKEN` (generate it with `claude setup-token`). PRs from forks can't access secrets, so their review is skipped automatically.
+
+---
+
+### Roadmap
+
+- [x] **Phase 0 Rule design**: rules table, CSV schema, license and disclaimer
+- [x] **Phase 1 Engine MVP**: size, fullness and age; egg → baby → adult
+- [x] **Phase 2 Playable desktop pet**: CSV import, pixel-art graphics, local storage, backup export
+- [ ] **Phase 3 Play with it for a month**: only tune the numbers, no new features
+- [ ] **Phase 4 Automation**: Fubon Securities sync ✅, weather/mood/fur ✅, Windows installer (macOS ✅)
+  - Broker integration status:
+    - Fubon Securities: done; to be verified with a real account once the API is enabled
+    - Sinopac Securities: done, **not yet verified with a real account** (whether position details count in board lots or shares, and the price fields, are unconfirmed); the Shioaji program itself was tested with version 1.7.7 for startup and login failure
+    - E.SUN Securities: **not built and not verified** (there's no E.SUN account to test with, and its login would require storing the brokerage account password; to be evaluated when it's built)
+- [ ] **Phase 5 Extensions and open contributions**: balanced diet, snacks, evolution branches, dividend fruit, sleeping and travelling
+
+### Contributing
+
+Before opening a PR, please make sure that:
+
+- [ ] There is no order-related code
+- [ ] There are no leaderboards, performance comparisons, or text that rates specific securities
+- [ ] User data never leaves the user's computer
+- [ ] No feature requires payment or sponsorship to unlock
+
+Documentation, code comments, commit messages and PR descriptions are written in English. README.md also keeps a Traditional Chinese translation; the English version is the source of truth. Text shown in the app stays in Traditional Chinese.
+
+### License
+
+[MIT](LICENSE)
+
+This project is not affiliated with any securities firm.
+
+---
+
+## 繁體中文
+
 > 用你真實的投資紀錄，養一隻住在桌面上、會長大的電子寵物。
 > 開源、純本機、唯讀 —— 你的資料永遠不會離開你的電腦。支援 macOS 與 Windows。
 
@@ -10,7 +321,7 @@
 
 ---
 
-## 這是什麼
+### 這是什麼
 
 90 年代的電子寵物之所以好玩，在於「照顧行為 × 時間 → 長出不同的樣子」。NestEgg 把同樣的概念套用在投資上：每一次準時的定期定額、每一天的長期持有，都會變成寵物的養分。
 
@@ -20,11 +331,11 @@
 - **點一下**：看牠現在幾天大、多大隻、吃飽了沒
 - **右鍵**：匯入交易紀錄、匯出備份、手動記帳、寵物設定、結束
 
-## 核心理念：分開「你能控制的」與「市場給的」
+### 核心理念：分開「你能控制的」與「市場給的」
 
 股市漲跌不是你能決定的，所以它不該決定寵物的生死。NestEgg 只獎勵你能控制的事 —— **紀律、耐心、分散** —— 市場波動只是寵物所處的天氣。
 
-### 你控制的 → 決定寵物的成長
+#### 你控制的 → 決定寵物的成長
 
 | 寵物狀態 | 對應的投資行為 | 狀態 |
 |---|---|---|
@@ -34,7 +345,7 @@
 | 🥗 營養均衡 | 持股分散程度；全押單一標的就像只吃同一種食物 | 規劃中 |
 | 🍬 吃太多零食 | 短期頻繁買賣、追高殺低 → 肚子痛（但不會死） | 規劃中 |
 
-### 目前的數值表
+#### 目前的數值表
 
 全部定義在 [`engine/index.js`](engine/index.js) 最上方，調數值只需改那裡。
 
@@ -53,7 +364,7 @@
 
 右鍵 →「寵物設定…」可以調**投入週期**（每週、每兩週、每月、每季）、**寬限天數**、**體型門檻**，以及天氣、心情、毛色的**門檻**。上表是預設值。孵化、成年只看時間，不開放調整。設定存在 NestEgg 資料夾的 `settings.json`，只記跟預設不一樣的項目。
 
-### 市場給的 → 只影響天氣、心情、毛色
+#### 市場給的 → 只影響天氣、心情、毛色
 
 漲跌只改變寵物「今天的樣子」，**不影響成長、體型與健康**，隔天行情變了就跟著變，不會累積。
 
@@ -64,7 +375,7 @@
 | ✨ 毛色 | 你的持股市值相對成本（未實現損益） | ✅ |
 | 🍎 果實 | 收到配息時掉落；你可以選擇再投入（餵牠吃掉） | 規劃中 |
 
-### 進化分支 = 投資風格（規劃中）
+#### 進化分支 = 投資風格（規劃中）
 
 養滿一段時間後，寵物會依照你的行為進化成不同型態。**型態沒有好壞之分**，只是不同的樣子：
 
@@ -72,13 +383,13 @@
 - 🐔 **下蛋型**：以領息為主
 - 🦔 **特化型**：集中持有少數個股
 
-### 生命週期
+#### 生命週期
 
 - 寵物**永遠不會因為虧損而死掉**
 - 停止投入一段時間 → 寵物**睡著**，恢復投入就會醒來（規劃中）
 - 賣出全部持股 → 寵物**去旅行**，之後可以再回來（規劃中）
 
-## 刻意不做的事
+### 刻意不做的事
 
 - ❌ 排行榜、績效比較、分享戰績
 - ❌ 評價或推薦任何個股、ETF
@@ -86,7 +397,7 @@
 - ❌ 雲端帳號、伺服器端資料儲存
 - ❌ 廣告、導流、付費解鎖
 
-## 隱私
+### 隱私
 
 - 所有資料只存在你電腦上的一個 CSV 檔：
   - macOS：`~/Library/Application Support/NestEgg/ledger.csv`
@@ -102,9 +413,9 @@
 
 ---
 
-## 開始玩
+### 開始玩
 
-### macOS 安裝檔
+#### macOS 安裝檔
 
 ```bash
 npm install
@@ -122,7 +433,7 @@ npm run dist
 >
 > 在桌布上按一下時，macOS 預設會把所有視窗（包含寵物）推開以顯示桌面，再按一次桌布就會回來。不想要這個行為，可以到「系統設定 → 桌面與 Dock → 按一下背景圖片以顯示桌面」改成「僅在幕前調度中」。
 
-### 從原始碼執行
+#### 從原始碼執行
 
 需要 [Node.js](https://nodejs.org/) 20 以上，macOS 與 Windows 指令相同：
 
@@ -138,7 +449,7 @@ npm start
 
 重複匯入同一份檔案不會產生重複紀錄，可以放心每次都匯入券商的完整對帳單。
 
-### 交易紀錄格式
+#### 交易紀錄格式
 
 ```csv
 date,symbol,action,shares,amount,fee
@@ -158,7 +469,7 @@ date,symbol,action,shares,amount,fee
 
 Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格式有錯時會告訴你第幾行，不會匯入一半。
 
-### 富邦證券自動同步
+#### 富邦證券自動同步
 
 右鍵 →「證券帳戶同步…」→ 選「富邦證券」，設定精靈會一步步帶你完成：
 
@@ -183,7 +494,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 - 自動同步失敗（例如 API Key 過期）會暫停並在寵物旁提示，不會反覆登入導致帳號被鎖
 - Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」
 
-### 永豐金證券自動同步（實驗性）
+#### 永豐金證券自動同步（實驗性）
 
 右鍵 →「證券帳戶同步…」→ 選「永豐金證券」：
 
@@ -200,7 +511,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 
 ---
 
-## 架構
+### 架構
 
 ```mermaid
 flowchart LR
@@ -216,12 +527,12 @@ flowchart LR
 寵物引擎是一個**純函式**，沒有隱藏狀態：
 
 ```js
-petState = evaluate(ledger, today, market)
+petState = evaluate(ledger, today, market, settings)
 ```
 
-同一份資料永遠養出同一隻寵物，因此引擎可以完整測試，也能「回放」寵物從蛋到現在的一生（把 `today` 換成任何一天即可）。`market` 可以省略；省略時沒有天氣、心情與毛色，成長完全不受影響。
+同一份資料永遠養出同一隻寵物，因此引擎可以完整測試，也能「回放」寵物從蛋到現在的一生（把 `today` 換成任何一天即可）。`market` 可以省略；省略時沒有天氣、心情與毛色，成長完全不受影響。`settings` 也可以省略，省略時用預設值。
 
-### Repo 結構
+#### Repo 結構
 
 ```
 nestegg/
@@ -232,7 +543,7 @@ nestegg/
 └── example/   # 範例交易紀錄
 ```
 
-### 技術選型
+#### 技術選型
 
 | 部分 | 技術 |
 |---|---|
@@ -241,7 +552,7 @@ nestegg/
 | 畫面 | Canvas 16×16 像素圖，CSS 放大 |
 | 券商同步 | 每家券商一個 adapter；富邦新一代 API Node.js SDK（使用者自行下載），在 Electron utility process 執行 |
 
-### 新增一家券商
+#### 新增一家券商
 
 共用的流程都在 [`app/brokers.js`](app/brokers.js)：安裝 SDK（先複製一份去掉 macOS quarantine 再解壓縮）、金鑰用系統鑰匙圈加密保存、同一時間只跑一個同步、每天自動同步、失敗就暫停、合併去重寫進帳本。每家券商只要寫自己不一樣的地方：
 
@@ -254,7 +565,7 @@ nestegg/
 
 再到 `app/brokers.js` 的 `BROKERS` 加一行，券商選擇頁就會出現它。原則：**只呼叫登入與查詢，程式裡不放任何下單呼叫**；能申請「只有查詢權限」的金鑰就請使用者這樣申請。
 
-## 開發
+### 開發
 
 ```bash
 npm test          # 單元測試：引擎、同步轉換、視窗位置
@@ -263,7 +574,7 @@ npm start    # 啟動寵物
 npm run dist      # 打包成目前作業系統的安裝檔
 ```
 
-### CI／CD（GitHub Actions）
+#### CI／CD（GitHub Actions）
 
 | Workflow | 什麼時候跑 | 做什麼 |
 |---|---|---|
@@ -276,7 +587,7 @@ Claude Code Review 需要在 repo 設定 secret `CLAUDE_CODE_OAUTH_TOKEN`（用 
 
 ---
 
-## Roadmap
+### Roadmap
 
 - [x] **Phase 0　規則設計**：數值表、CSV schema、授權與免責聲明
 - [x] **Phase 1　引擎 MVP**：體型、飽足、年齡；蛋 → 幼年 → 成年三階段
@@ -289,7 +600,7 @@ Claude Code Review 需要在 repo 設定 secret `CLAUDE_CODE_OAUTH_TOKEN`（用 
     - 玉山證券：**還沒做、也沒驗證**（目前沒有玉山帳戶可以測；登入需要存證券帳戶密碼，要做時再評估）
 - [ ] **Phase 5　擴充與開放貢獻**：營養均衡、零食、進化分支、配息果實、睡著與旅行
 
-## 貢獻
+### 貢獻
 
 提交 PR 前，請確認符合以下守則：
 
@@ -298,7 +609,9 @@ Claude Code Review 需要在 repo 設定 secret `CLAUDE_CODE_OAUTH_TOKEN`（用 
 - [ ] 使用者資料沒有離開他的電腦
 - [ ] 沒有任何功能需要付費或贊助才能解鎖
 
-## 授權
+文件、程式註解、commit message 與 PR 說明一律用英文。README.md 另外保留繁體中文翻譯，以英文版為準。App 畫面上的文字維持繁體中文。
+
+### 授權
 
 [MIT](LICENSE)
 
