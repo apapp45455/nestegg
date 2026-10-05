@@ -9,6 +9,8 @@ const DATA = process.platform === 'darwin'
   ? join(homedir(), 'Library', 'Application Support', 'NestEgg')
   : join(process.env.APPDATA ?? homedir(), 'NestEgg')
 const SDK_DIR = join(DATA, 'fubon', 'package')
+// 拖進來或貼上的路徑可能帶引號或跳脫的空白
+const unquote = path => path.replace(/^['"]|['"]$/g, '').replace(/\\ /g, ' ')
 
 function ask(prompt, hidden = true) {
   return new Promise(resolve => {
@@ -32,15 +34,15 @@ async function main() {
     process.exit(1)
   }
   const exists = path => require('node:fs').existsSync(path)
-  if (process.argv[2] && !exists(process.argv[2])) {
+  const argPath = process.argv[2] && unquote(process.argv[2])
+  if (argPath && !exists(argPath)) {
     console.error('找不到憑證檔，請確認路徑。') // 指令帶了路徑就先檢查，不用白輸入一次帳密
     return 1
   }
   const id = (await ask('身分證字號（不會顯示）：')).toUpperCase()
   const password = await ask('電子交易登入密碼（不會顯示）：')
-  // 憑證檔可以直接寫在指令後面（有些終端機不能拖檔案）；否則把 .pfx 拖進來：去掉引號與跳脫的空白
-  const certPath = process.argv[2] ?? (await ask('憑證 .pfx 檔案路徑（可把檔案拖進來後按 Enter）：', false))
-    .replace(/^['"]|['"]$/g, '').replace(/\\ /g, ' ')
+  // 憑證檔可以直接寫在指令後面（有些終端機不能拖檔案）；否則把 .pfx 拖進來
+  const certPath = argPath || unquote(await ask('憑證 .pfx 檔案路徑（可把檔案拖進來後按 Enter）：', false))
   if (!exists(certPath)) {
     console.error('找不到憑證檔，請確認路徑。')
     return 1

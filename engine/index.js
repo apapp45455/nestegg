@@ -18,6 +18,7 @@ export const FUR_PCT = 5 // 持股市值相對成本 ±5% 以上 → 毛色發�
 const DAY = 864e5
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / DAY)
 export const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s)) && new Date(s).toISOString().startsWith(s)
+export const addDays = (date, n) => new Date(Date.parse(date) + n * DAY).toISOString().slice(0, 10)
 
 // ponytail: 不支援引號欄位；schema 的欄位本來就不含逗號
 export function parseLedger(text) {
