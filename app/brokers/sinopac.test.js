@@ -1,10 +1,10 @@
 // 永豐 adapter 真正開 Shioaji 伺服器的那一段（e2e 換成假伺服器，測不到這裡）
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import sinopac, { serverEnv } from './sinopac.js'
+import sinopac, { redact, serverEnv } from './sinopac.js'
 
 const creds = { apiKey: 'k', secretKey: 's' }
 
@@ -20,13 +20,18 @@ test('sinopac: 使用者環境裡的 SJ_ 變數（例如憑證）不會帶進 Sh
 // 假的 shioaji：參數或環境不對就結束；金鑰是 bad 就模擬登入失敗；否則在 SJ_HTTP_ADDR 開健康檢查
 test('sinopac: 開伺服器、等它好、查完關掉；登入失敗與找不到程式都有看得懂的錯誤', { skip: process.platform === 'win32' && '假執行檔是 shell script' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'nestegg-sj-'))
-  const bin = join(dir, 'shioaji')
+  const bin = join(dir, 'fake-shioaji') // 不能叫 shioaji：那是 Shioaji 的資料夾（SJ_HOME_PATH）
   writeFileSync(bin, `#!/usr/bin/env node
 const env = process.env
 if (env.SJ_API_KEY === 'bad') { console.error('Login failed: invalid api key'); process.exit(3) }
 if (env.SJ_API_KEY === 'fail') { console.error(env.SJ_SEC_KEY); process.exit(4) } // 用 Secret Key 欄位指定要印的錯誤訊息
+if (env.SJ_API_KEY.length > 20) { // 真的 Shioaji 1.7.7 遇到不存在的金鑰時印的訊息
+  console.error('Error: Authentication failed: Shioaji error Request #P2P/v:bcsolace01/Oryfkqqm/PYAPI/' + env.SJ_API_KEY.slice(0, 10) + '/1005/073949/374920000/LOGINING/_ error code: 400, detail: key: ' + env.SJ_API_KEY + ' not exist.')
+  process.exit(1)
+}
 if (process.argv.slice(2).join(' ') !== 'server start --production --no-open' || env.SJ_CA_PATH || env.SJ_PRODUCTION !== 'true') process.exit(9)
 const [host, port] = env.SJ_HTTP_ADDR.split(':')
+require('node:fs').mkdirSync(require('node:path').join(env.SJ_HOME_PATH, 'observability', host + '_' + port + '-production'), { recursive: true })
 require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).listen(+port, host)
 `)
   chmodSync(bin, 0o755)
@@ -44,9 +49,23 @@ require('node:http').createServer((q, s) => s.end('{"status":"healthy"}')).liste
     }
     await assert.rejects(sinopac.server(bin, { apiKey: 'fail', secretKey: 'Error: invalid api key' }, dir), e => e.needsUser === true)
     await assert.rejects(sinopac.server(join(dir, 'missing'), creds, dir), /無法執行 Shioaji/)
+    // 金鑰不存在：要使用者處理，而且訊息裡看不到金鑰（這段訊息會寫進設定檔的暫停原因）
+    const key = '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb'
+    await assert.rejects(sinopac.server(bin, { apiKey: key, secretKey: 's' }, dir), e =>
+      e.needsUser === true && /not exist/.test(e.message) && !e.message.includes(key.slice(0, 10)))
+    // 啟動兩次（埠不同）只留下最後一次的 observability 資料夾
+    for (let i = 0; i < 2; i++) (await sinopac.server(bin, creds, dir)).stop()
+    assert.equal(readdirSync(join(dir, 'shioaji', 'observability')).length, 1)
   } finally {
     delete process.env.SJ_CA_PATH
   }
+})
+
+test('sinopac: 遮掉訊息裡的金鑰與金鑰片段，其他字不動', () => {
+  const key = '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb'
+  assert.equal(redact(`Request #P2P/PYAPI/${key.slice(0, 10)}/1005 detail: key: ${key} not exist.`, [key, 'short']),
+    'Request #P2P/PYAPI/***/1005 detail: key: *** not exist.')
+  assert.equal(redact('Authentication failed: invalid secret', [key]), 'Authentication failed: invalid secret')
 })
 
 // 安裝：下載的壓縮檔解開後的資料夾 → 檢查作業系統、CPU、有沒有執行檔，記下版本
