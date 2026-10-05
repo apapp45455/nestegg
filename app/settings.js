@@ -1,5 +1,6 @@
 // 寵物設定：改了就存，寵物馬上跟著變。數字範圍由引擎（SETTINGS）決定，超出範圍的不存並提示
 const form = document.getElementById('settings')
+const result = document.getElementById('result')
 
 function render(values) {
   for (const [key, v] of Object.entries(values)) {
@@ -10,7 +11,16 @@ function render(values) {
   }
 }
 
-const save = async input => render(await window.petSettings.set(input))
+// 存不進去（例如磁碟滿了）就說出來，畫面回到實際存著的設定，不要看起來像已經套用
+async function save(input) {
+  try {
+    render(await window.petSettings.set(input))
+    result.hidden = true
+  } catch (e) {
+    Object.assign(result, { hidden: false, textContent: `存檔失敗，畫面已回到目前的設定：${e.message}` })
+    render((await window.petSettings.get()).values)
+  }
+}
 
 form.addEventListener('change', () => {
   if (!form.checkValidity()) return form.reportValidity()

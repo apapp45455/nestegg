@@ -356,6 +356,10 @@ async function runAll() {
     await set('fur', '500')
     await wait(500)
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2, period: 7 })
+    // 連續快速存檔（不等上一次存完）：每一次都成功，留下的是最後一次
+    const saves = await page('Promise.allSettled([2, 3, 4, 5].map(mood => window.petSettings.set({ mood }))).then(r => r.map(x => x.status))', settings())
+    assert.deepEqual(saves, ['fulfilled', 'fulfilled', 'fulfilled', 'fulfilled'])
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 5 })
     await page('document.getElementById("reset").click()', settings())
     await until('state.mood', v => v === 'happy', '恢復預設後又開心')
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {})

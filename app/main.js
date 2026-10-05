@@ -93,7 +93,7 @@ export function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) return settingsWin.focus()
   settingsWin = new BrowserWindow({
     width: 480,
-    height: 780,
+    height: Math.min(780, screen.getPrimaryDisplay().workArea.height), // 1366×768 的筆電放不下 780
     title: '寵物設定',
     webPreferences: { preload: join(import.meta.dirname, 'preload.cjs') },
   })
@@ -102,14 +102,20 @@ export function openSettings() {
 }
 
 ipcMain.handle('settings:get', async () => ({ values: parseSettings(await readSettings()), limits: SETTINGS }))
-// 只存跟預設不一樣的：「恢復預設」就是空的檔案，以後預設值改了也會跟著改
-ipcMain.handle('settings:set', async (_e, input) => {
-  const values = parseSettings(input)
-  const changed = Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== SETTINGS[key].value))
-  await writeFile(`${SETTINGS_FILE}.tmp`, JSON.stringify(changed, null, 2))
-  await rename(`${SETTINGS_FILE}.tmp`, SETTINGS_FILE)
-  await refresh()
-  return values
+// 只存跟預設不一樣的：「恢復預設」就是空的檔案，以後預設值改了也會跟著改。
+// 排隊一次寫一個（跟帳本一樣）：設定視窗每改一格就存一次，連續改時不能共用暫存檔互相蓋掉
+let savingSettings = Promise.resolve()
+ipcMain.handle('settings:set', (_e, input) => {
+  const task = savingSettings.then(async () => {
+    const values = parseSettings(input)
+    const changed = Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== SETTINGS[key].value))
+    await writeFile(`${SETTINGS_FILE}.tmp`, JSON.stringify(changed, null, 2))
+    await rename(`${SETTINGS_FILE}.tmp`, SETTINGS_FILE)
+    await refresh()
+    return values
+  })
+  savingSettings = task.catch(() => {}) // 這次失敗不影響下一次
+  return task
 })
 
 async function showLedger() {
