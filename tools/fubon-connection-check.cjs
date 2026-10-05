@@ -1,6 +1,6 @@
 // 富邦新一代 API 簽署當天的「連線測試」（富邦 SOP 方法三：用帳號密碼登入一次）。
 // 只呼叫 login 與 logout，不儲存任何資料；輸入的內容不會顯示在畫面上。
-// 需要先在 NestEgg 設定精靈安裝 SDK。用法：node tools/fubon-connection-check.cjs
+// 需要先在 NestEgg 設定精靈安裝 SDK。用法：node tools/fubon-connection-check.cjs [憑證檔路徑]
 const { homedir } = require('node:os')
 const { join } = require('node:path')
 const readline = require('node:readline')
@@ -33,9 +33,13 @@ async function main() {
   }
   const id = (await ask('身分證字號（不會顯示）：')).toUpperCase()
   const password = await ask('電子交易登入密碼（不會顯示）：')
-  // 可以直接把 .pfx 拖進終端機：去掉引號與跳脫的空白
-  const certPath = (await ask('憑證 .pfx 檔案路徑（可把檔案拖進來後按 Enter）：', false))
+  // 憑證檔可以直接寫在指令後面（有些終端機不能拖檔案）；否則把 .pfx 拖進來：去掉引號與跳脫的空白
+  const certPath = process.argv[2] ?? (await ask('憑證 .pfx 檔案路徑（可把檔案拖進來後按 Enter）：', false))
     .replace(/^['"]|['"]$/g, '').replace(/\\ /g, ' ')
+  if (!require('node:fs').existsSync(certPath)) {
+    console.error('找不到憑證檔，請確認路徑。')
+    process.exit(1)
+  }
   const certPass = await ask('憑證密碼（沒改過直接按 Enter）：')
 
   process.chdir(join(DATA, 'fubon')) // SDK 會在目前資料夾寫 log
