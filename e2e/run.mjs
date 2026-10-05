@@ -315,7 +315,7 @@ async function runAll() {
       assert.match(res.error, /key: \*\*\* not exist/)
       assert.ok(!res.error.includes(key.slice(0, 10)), res.error)
       // 自動同步（已存的金鑰）遇到同樣的錯誤：暫停原因寫進設定檔，裡面也不能有金鑰
-      await assert.rejects(syncSaved('sinopac'), e => e.needsUser === true)
+      await assert.rejects(syncSaved('sinopac'), e => e.needsUser === true && !e.stack.includes(key.slice(0, 10))) // stack 會被 console.error 印出來
       const config = readFileSync(join(DATA, 'sinopac', 'config.json'), 'utf8')
       assert.match(config, /key: \*\*\* not exist/)
       assert.ok(!config.includes(key.slice(0, 10)), config)

@@ -85,7 +85,11 @@ async function sync(b, creds, from, manual = false) {
   const { rows: fresh, accounts, warnings, skipped = [] } = await b.fetch({
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
     runWorker: (file, payload) => runWorker(file, payload, home(b)),
-  }).catch(e => { throw Object.assign(e, { message: redact(e.message, Object.values(creds)) }) })
+  }).catch(e => {
+    // stack 也帶著原本的訊息（自動同步失敗會 console.error 整個錯誤）；不是 Error 的就原樣丟出，不要因為遮罩又丟出新的錯誤
+    if (e instanceof Error) Object.assign(e, { message: redact(e.message, Object.values(creds)), stack: e.stack && redact(e.stack, Object.values(creds)) })
+    throw e
+  })
   if (!b.snapshot) return { added: (await ctx.onRows(fresh)).added, accounts, warnings }
   // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批。
   // rows.json 讀不出來就停下來、帳本不動：快照的數字會變，猜錯上一批會讓本金重複算
