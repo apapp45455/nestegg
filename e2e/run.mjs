@@ -77,6 +77,24 @@ async function until(code, ok, label, ms = 15_000, w = win) {
   }
   throw new Error(`等不到：${label}`)
 }
+// 富邦同步卡在登入時做 fn，做完才放行；回傳 [fn 的結果, 同步的結果]。
+// 等假 SDK 真的進到登入才做 fn：主程序一定已經標記同步中，不靠時間差（不同視窗送出的訊息先後不一定）
+async function duringFubonSync(fn) {
+  const hold = join(SDK, 'hold-login'), started = join(SDK, 'login-started')
+  rmSync(started, { force: true })
+  writeFileSync(hold, '')
+  const syncing = page("window.broker.sync('fubon')")
+  try {
+    for (const end = Date.now() + 15_000; !existsSync(started); await wait(50)) {
+      if (Date.now() > end) throw new Error('等不到：富邦開始登入')
+    }
+    const result = await fn()
+    rmSync(hold)
+    return [result, await syncing]
+  } finally {
+    rmSync(hold, { force: true })
+  }
+}
 const ledgerLines = (symbol = '') => {
   const f = join(DATA, 'ledger.csv')
   return existsSync(f) ? readFileSync(f, 'utf8').trim().split('\n').slice(1).filter(l => l.includes(symbol)).length : 0
@@ -137,15 +155,10 @@ async function runAll() {
   await test('富邦同步：同步中按「連線並同步」會被擋下，不會拿到舊結果、也不會蓋掉儲存的金鑰', async () => {
     const secret = () => JSON.parse(readFileSync(join(DATA, 'fubon', 'config.json'), 'utf8')).secret
     const before = secret()
-    writeFileSync(join(SDK, 'slow-login'), '')
-    try {
-      const syncing = page("window.broker.sync('fubon')") // 先送出，主程序收到就標記為同步中
-      const res = await page(`window.broker.connect('fubon', { id: 'b123456789', apiKey: 'other-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
-      assert.match(res.error ?? '', /正在同步中/)
-      assert.equal((await syncing).ok?.added, 0)
-    } finally {
-      rmSync(join(SDK, 'slow-login'))
-    }
+    const [res, synced] = await duringFubonSync(() =>
+      page(`window.broker.connect('fubon', { id: 'b123456789', apiKey: 'other-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`))
+    assert.match(res.error ?? '', /正在同步中/)
+    assert.equal(synced.ok?.added, 0)
     assert.equal(secret(), before)
   })
 
@@ -204,19 +217,15 @@ async function runAll() {
 
   await test('兩家券商同時同步：各自拿到自己的結果，帳本兩邊的紀錄都在', async () => {
     rmSync(join(SDK, 'fail-login'))
-    writeFileSync(join(SDK, 'slow-login'), '') // 富邦卡 2 秒，永豐趁這時候同步
     shioaji.positions.push({ id: 1, code: '2884', direction: 'Buy', quantity: 1000, price: 30, cond: 'Cash' })
     shioaji.positionDetails[1] = [{ date: '2026-07-01', quantity: 1 }]
     try {
-      const fubon = page("window.broker.sync('fubon')")
-      const sinopacRes = await page("window.broker.sync('sinopac')")
+      const [sinopacRes, fubonRes] = await duringFubonSync(() => page("window.broker.sync('sinopac')")) // 富邦卡在登入，永豐趁這時候同步
       assert.equal(sinopacRes.error, undefined, sinopacRes.error)
       assert.equal(sinopacRes.ok.added, 1) // 不是富邦那次的結果
-      const fubonRes = await fubon
       assert.equal(fubonRes.error, undefined, fubonRes.error)
       assert.equal(fubonRes.ok.added, 0)
     } finally {
-      rmSync(join(SDK, 'slow-login'))
       writeFileSync(join(SDK, 'fail-login'), '') // 恢復前面測試的狀態
     }
     assert.equal(ledgerLines(',2884,'), 1)
@@ -417,30 +426,20 @@ async function runAll() {
     assert.match(await until('document.getElementById("sdk-status").textContent', v => v, 'SDK 狀態', 15_000, fubonPage), /已安裝 v2\.5\.0-fake/)
     // 同步中按「清除儲存的金鑰」：畫面要說被擋下，不能說已清除
     await page('window.confirm = () => true; 0', fubonPage())
-    writeFileSync(join(SDK, 'slow-login'), '')
-    try {
-      const syncing = page("window.broker.sync('fubon')")
+    const [result] = await duringFubonSync(async () => {
       await page('document.getElementById("disconnect").click()', fubonPage())
-      const result = await until('document.getElementById("result").className + " " + document.getElementById("result").textContent', v => /error/.test(v), '清除被擋下的訊息', 15_000, fubonPage)
-      assert.match(result, /正在同步/)
-      await syncing
-    } finally {
-      rmSync(join(SDK, 'slow-login'))
-    }
+      return until('document.getElementById("result").className + " " + document.getElementById("result").textContent', v => /error/.test(v), '清除被擋下的訊息', 15_000, fubonPage)
+    })
+    assert.match(result, /正在同步/)
     assert.equal((await page("window.broker.status('fubon')")).ok.connected, true)
     fubonPage().destroy()
   })
 
   await test('清除金鑰、安裝 SDK：同步中會被擋下（同步結束不會把金鑰寫回來），同步完才清得掉', async () => {
-    writeFileSync(join(SDK, 'slow-login'), '')
-    try {
-      const syncing = page("window.broker.sync('fubon')")
+    await duringFubonSync(async () => {
       assert.match((await page("window.broker.disconnect('fubon')")).error ?? '', /正在同步/)
       assert.match((await page("window.broker.installSdk('fubon')")).error ?? '', /正在同步/) // 檔案對話框還是上面那個替身
-      await syncing
-    } finally {
-      rmSync(join(SDK, 'slow-login'))
-    }
+    })
     assert.equal((await page("window.broker.disconnect('fubon')")).error, undefined)
     assert.equal(existsSync(join(DATA, 'fubon', 'config.json')), false)
     assert.equal((await page("window.broker.status('fubon')")).ok.connected, false)
