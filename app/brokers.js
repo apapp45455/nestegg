@@ -85,6 +85,10 @@ async function sync(b, creds, from, manual = false) {
   const { rows: fresh, accounts, warnings, skipped = [] } = await b.fetch({
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
     runWorker: (file, payload) => runWorker(file, payload, home(b)),
+  }).catch(e => {
+    // stack 也帶著原本的訊息（自動同步失敗會 console.error 整個錯誤）；不是 Error 的就原樣丟出，不要因為遮罩又丟出新的錯誤
+    if (e instanceof Error) Object.assign(e, { message: redact(e.message, Object.values(creds)), stack: e.stack && redact(e.stack, Object.values(creds)) })
+    throw e
   })
   if (!b.snapshot) return { added: (await ctx.onRows(fresh)).added, accounts, warnings }
   // 快照型券商（只查得到目前持倉與已實現損益）每次給的是 since 起的完整紀錄：取代上次寫進帳本的那批。
@@ -104,6 +108,11 @@ async function sync(b, creds, from, manual = false) {
   await writeJson(rowsFile(b), inserted) // 只記同步自己寫進去的列；你自己記過的相同列不歸同步管
   return { added, accounts, warnings }
 }
+
+// 券商的錯誤訊息可能帶出金鑰（永豐金鑰不存在時會印出整組 API Key，請求編號裡還有前 10 碼）。
+// 錯誤訊息會顯示在畫面上、也會寫進設定檔的暫停原因，所以整串與 8 碼以上的片段都遮掉；短於 8 碼的欄位（憑證密碼）不比對，免得遮到一般的字
+const redact = (text, secrets) => secrets.filter(s => typeof s === 'string' && s.length >= 8).reduce(
+  (t, s) => t.replaceAll(s, '***').replace(/[A-Za-z0-9]{8,}/g, w => (s.includes(w) ? '***' : w)), text)
 
 // 要使用者處理才會好的錯誤（登入失敗、讀不到金鑰）帶 needsUser，自動同步會因此暫停；adapter 也這樣標記
 const needsUser = message => Object.assign(new Error(message), { needsUser: true })

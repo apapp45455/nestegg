@@ -42,6 +42,9 @@ const fakeShioaji = createServer((req, res) => {
       '/api/v1/portfolio/profit_loss': shioaji.profitLoss,
       '/api/v1/portfolio/profit_loss_detail': shioaji.profitDetails[json.detail_id] ?? [],
     }[req.url]
+    // authError：像真的 Shioaji 一樣在錯誤訊息裡帶出金鑰（整組＋請求編號裡的前 10 碼）
+    const key = shioaji.started?.creds.apiKey ?? ''
+    if (shioaji.authError) return res.writeHead(401).end(JSON.stringify({ message: `Request #P2P/PYAPI/${key.slice(0, 10)}/1005 error code: 400, detail: key: ${key} not exist.` }))
     res.writeHead(reply ? 200 : 404, { 'Content-Type': 'application/json' }).end(JSON.stringify(reply ?? { message: 'not found' }))
   })
 }).listen(0, '127.0.0.1')
@@ -299,6 +302,26 @@ async function runAll() {
     const res = await page("window.broker.sync('sinopac')")
     assert.match(res.error, /模擬環境/)
     assert.equal(ledgerLines(',2890,'), 3)
+  })
+
+  await test('永豐同步：錯誤訊息帶出金鑰時遮掉，畫面與設定檔都看不到', async () => {
+    const key = '4t1kkLTbjrxPJcxg2y8baZBA1142BBqXKxMdAyK3qLKb' // 真的金鑰長這樣（測試前面用的 sj-key 太短，不會被當成金鑰）
+    const connect = `window.broker.connect('sinopac', { apiKey: '${key}', secretKey: 'sj-secret', since: '2025-10-01' })`
+    shioaji.simulation = false
+    assert.equal((await page(connect)).error, undefined) // 先存好這組金鑰
+    shioaji.authError = true
+    try {
+      const res = await page(connect)
+      assert.match(res.error, /key: \*\*\* not exist/)
+      assert.ok(!res.error.includes(key.slice(0, 10)), res.error)
+      // 自動同步（已存的金鑰）遇到同樣的錯誤：暫停原因寫進設定檔，裡面也不能有金鑰
+      await assert.rejects(syncSaved('sinopac'), e => e.needsUser === true && !e.stack.includes(key.slice(0, 10))) // stack 會被 console.error 印出來
+      const config = readFileSync(join(DATA, 'sinopac', 'config.json'), 'utf8')
+      assert.match(config, /key: \*\*\* not exist/)
+      assert.ok(!config.includes(key.slice(0, 10)), config)
+    } finally {
+      shioaji.authError = false
+    }
   })
 
   await test('行情：天氣、心情、毛色跟著快取的行情走', async () => {
