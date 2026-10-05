@@ -130,7 +130,7 @@ export function evaluate(ledger, today, market = null, settings = {}) {
   return {
     stage: age < HATCH_DAYS ? 'egg' : age < ADULT_DAYS ? 'baby' : 'adult',
     age,
-    size: 1 + LEVELS.filter(key => principal >= s[key] * 10_000).length,
+    size: 1 + LEVELS.filter(key => principal >= Math.round(s[key] * 10_000)).length, // 手改設定檔的 0.14 萬 × 10,000 會是 1400.0000000000002
     satiety: Math.min(3, Math.max(0, 3 - missed)), // 3 = 飽，漏一期少一碗，最低 0（不會死）
     ...env,
   }

@@ -118,6 +118,7 @@ test('settings: 體型門檻可以調（萬元）；沒有一級比一級高就�
   assert.equal(evaluate(l, '2026-02-01').size, 2) // 預設：3 萬 Lv2、10 萬 Lv3
   assert.equal(evaluate(l, '2026-02-01', null, { lv2: 1, lv3: 2, lv4: 4, lv5: 5 }).size, 5)
   assert.equal(evaluate(l, '2026-02-01', null, { lv2: 10, lv3: 20, lv4: 40, lv5: 80 }).size, 1)
+  assert.equal(evaluate([buy('2026-01-01', 1_400)], '2026-02-01', null, { lv2: 0.14 }).size, 2) // 剛好 0.14 萬就升級（0.14 × 10,000 有浮點誤差）
   const broken = parseSettings({ lv2: 50, mood: 2 }) // Lv2 比 Lv3（預設 10 萬）還高
   assert.deepEqual([broken.lv2, broken.lv3, broken.mood], [3, 10, 2]) // 其他設定不受影響
 })
