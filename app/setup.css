@@ -1,4 +1,4 @@
-/* 設定精靈共用樣式（券商選擇頁與各券商的設定頁） */
+/* 設定視窗共用樣式（券商選擇頁、各券商的設定頁、寵物設定） */
 :root {
   color-scheme: light dark;
   --bg: #fffdf6; --card: #ffffff; --text: #3b2a1a; --muted: #75614b; --line: #ead9bd;
@@ -35,7 +35,7 @@ code { font-size: 13px; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 form { display: grid; gap: 12px; margin-top: 8px; }
 label, .field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
-input {
+input, select {
   font: inherit; font-weight: 400; padding: 7px 10px; border-radius: 8px;
   border: 1px solid var(--line); background: var(--bg); color: var(--text);
 }

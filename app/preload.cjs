@@ -19,3 +19,6 @@ contextBridge.exposeInMainWorld('broker', {
   sync: invoke('broker:sync'),
   disconnect: invoke('broker:disconnect'),
 })
+
+// 寵物設定視窗用：get 回傳 { values, limits }，set 存檔後回傳實際採用的值（不合理的會換成預設）
+contextBridge.exposeInMainWorld('petSettings', { get: invoke('settings:get'), set: invoke('settings:set') })

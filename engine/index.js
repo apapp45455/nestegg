@@ -4,16 +4,34 @@
 export const HEADER = 'date,symbol,action,shares,amount,fee'
 const ACTIONS = ['buy', 'sell', 'dividend']
 
-// 數值表（Phase 0）：調數值只改這裡
+// 數值表（Phase 0）：調數值只改這裡。孵化、長大只看時間，不開放使用者調整（調了養寵物就沒有意義）
 export const HATCH_DAYS = 7 // 第一次買入後幾天孵化
 export const ADULT_DAYS = 365 // 幾天長成成年
-export const SIZE_STEPS = [30_000, 100_000, 300_000, 1_000_000] // 本金門檻 → 體型 Lv1..5
-// ponytail: 固定以「月」為一期，週投 / 季投的人要改成從買入間隔推算週期
-export const PERIOD_DAYS = 31
-export const GRACE_DAYS = 7 // 扣款日遇假日、同步延遲的寬限
-export const TYPHOON_PCT = -3 // 加權指數單日跌幅 ≥ 3% → 颱風（其餘下跌 → 下雨）
-export const MOOD_PCT = 1 // 持股單日漲跌 ±1% 以上 → 開心 / 難過
-export const FUR_PCT = 5 // 持股市值相對成本 ±5% 以上 → 毛色發亮 / 黯淡
+
+// 使用者在「寵物設定」可以調的（存在 settings.json）；value 是預設值
+export const SETTINGS = {
+  period: { value: 31, min: 7, max: 92, step: 1 }, // 投入週期（天）：每月扣款 31、每週 7、每季 92
+  grace: { value: 7, min: 0, max: 30, step: 1 }, // 扣款日遇假日、同步延遲的寬限（天）
+  typhoon: { value: 3, min: 0.5, max: 10, step: 0.5 }, // 加權指數單日跌幅 ≥ 幾 % → 颱風（其餘下跌 → 下雨）
+  mood: { value: 1, min: 0.1, max: 10, step: 0.1 }, // 持股單日漲跌 ± 幾 % 以上 → 開心 / 難過
+  fur: { value: 5, min: 0.5, max: 50, step: 0.5 }, // 持股市值相對成本 ± 幾 % 以上 → 毛色發亮 / 黯淡
+  // 本金到幾萬元長大一級（Lv1 → Lv5）；每個人的資產規模差很多，所以可以調
+  lv2: { value: 3, min: 0.1, max: 10_000, step: 0.1 },
+  lv3: { value: 10, min: 0.1, max: 10_000, step: 0.1 },
+  lv4: { value: 30, min: 0.1, max: 10_000, step: 0.1 },
+  lv5: { value: 100, min: 0.1, max: 10_000, step: 0.1 },
+}
+export const LEVELS = ['lv2', 'lv3', 'lv4', 'lv5']
+// 設定檔可能被手改壞：每一項不是數字、超出範圍、天數不是整數，就用預設值；
+// 體型門檻要一級比一級高，不然四個一起回到預設
+export function parseSettings(input) {
+  const s = Object.fromEntries(Object.entries(SETTINGS).map(([key, { value, min, max, step }]) => {
+    const v = input?.[key]
+    return [key, typeof v === 'number' && v >= min && v <= max && (step < 1 || Number.isInteger(v)) ? v : value]
+  }))
+  if (LEVELS.some((key, i) => i && s[key] <= s[LEVELS[i - 1]])) for (const key of LEVELS) s[key] = SETTINGS[key].value
+  return s
+}
 
 const DAY = 864e5
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / DAY)
@@ -61,9 +79,9 @@ export const mergeLedger = (existing, incoming) => [...existing, ...unmatched(in
 export const removeRows = (ledger, rows) => unmatched(ledger, rows)
 
 // market（可省略）：{ date, indexChange: 加權指數漲跌 %, prices: { 代號: { close, change } } }
-function marketMood(holdings, market) {
+function marketMood(holdings, market, s) {
   if (!market) return { weather: null, mood: null, fur: null }
-  const weather = market.indexChange >= 0 ? 'sunny' : market.indexChange > TYPHOON_PCT ? 'rain' : 'typhoon'
+  const weather = market.indexChange >= 0 ? 'sunny' : market.indexChange > -s.typhoon ? 'rain' : 'typhoon'
   let value = 0, prev = 0, cost = 0
   for (const [symbol, h] of holdings) {
     const p = market.prices[symbol]
@@ -77,12 +95,14 @@ function marketMood(holdings, market) {
   const gain = (value / cost - 1) * 100
   return {
     weather,
-    mood: day >= MOOD_PCT ? 'happy' : day <= -MOOD_PCT ? 'sad' : 'calm',
-    fur: gain >= FUR_PCT ? 'shiny' : gain <= -FUR_PCT ? 'dull' : 'normal',
+    mood: day >= s.mood ? 'happy' : day <= -s.mood ? 'sad' : 'calm',
+    fur: gain >= s.fur ? 'shiny' : gain <= -s.fur ? 'dull' : 'normal',
   }
 }
 
-export function evaluate(ledger, today, market = null) {
+// settings（可省略）：使用者的寵物設定，見 SETTINGS；缺的、壞的用預設值
+export function evaluate(ledger, today, market = null, settings = {}) {
+  const s = parseSettings(settings)
   const holdings = new Map() // symbol → { shares, cost }
   let firstBuy, lastBuy
   for (const r of [...ledger].sort(byDate)) {
@@ -101,16 +121,16 @@ export function evaluate(ledger, today, market = null) {
     }
     holdings.set(r.symbol, h)
   }
-  const env = { ...marketMood(holdings, market), marketDate: market?.date ?? null, indexChange: market?.indexChange ?? null }
+  const env = { ...marketMood(holdings, market, s), marketDate: market?.date ?? null, indexChange: market?.indexChange ?? null }
   if (!firstBuy) return { stage: 'none', age: 0, size: 1, satiety: 3, ...env }
 
   const principal = [...holdings.values()].reduce((s, h) => s + h.cost, 0)
   const age = days(firstBuy, today)
-  const missed = Math.floor((days(lastBuy, today) - GRACE_DAYS) / PERIOD_DAYS)
+  const missed = Math.floor((days(lastBuy, today) - s.grace) / s.period)
   return {
     stage: age < HATCH_DAYS ? 'egg' : age < ADULT_DAYS ? 'baby' : 'adult',
     age,
-    size: 1 + SIZE_STEPS.filter(t => principal >= t).length,
+    size: 1 + LEVELS.filter(key => principal >= Math.round(s[key] * 10_000)).length, // 手改設定檔的 0.14 萬 × 10,000 會是 1400.0000000000002
     satiety: Math.min(3, Math.max(0, 3 - missed)), // 3 = 飽，漏一期少一碗，最低 0（不會死）
     ...env,
   }

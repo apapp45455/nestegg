@@ -1,5 +1,5 @@
 // 端到端測試用的假富邦 SDK：介面跟真的 trade.js 的 CoreSdk 一樣，但不連網，回傳固定的成交紀錄。
-// 測試可以在這個資料夾放 fail-login 檔案模擬登入失敗、放 slow-login 讓登入卡 2 秒（模擬同步中）、放 fail-logout 讓登出丟錯、放 fail-query 讓查詢丟錯（模擬斷線）。
+// 測試可以在這個資料夾放 fail-login 檔案模擬登入失敗、放 hold-login 讓登入卡住（模擬同步中）、放 fail-logout 讓登出丟錯、放 fail-query 讓查詢丟錯（模擬斷線）。
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -15,7 +15,13 @@ const FILLS = [
 class CoreSdk {
   constructor(version) { this.version = version }
   apikeyLogin(id, apiKey, certPath) {
-    if (fs.existsSync(path.join(__dirname, 'slow-login'))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000)
+    // hold-login：先放 login-started 讓測試知道已經在登入（主程序已標記同步中），再卡到測試拿掉 hold-login（最多 30 秒）
+    if (fs.existsSync(path.join(__dirname, 'hold-login'))) {
+      fs.writeFileSync(path.join(__dirname, 'login-started'), '')
+      for (const end = Date.now() + 30_000; fs.existsSync(path.join(__dirname, 'hold-login')) && Date.now() < end;) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+      }
+    }
     if (fs.existsSync(path.join(__dirname, 'fail-login'))) return { isSuccess: false, message: 'API Key 無效（假的）' }
     if (!fs.existsSync(certPath)) return { isSuccess: false, message: '找不到憑證' }
     return { isSuccess: true, data: [

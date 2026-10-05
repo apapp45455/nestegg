@@ -2,14 +2,15 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, screen, shell } from 'electr
 import { existsSync } from 'node:fs'
 import { copyFile, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { HEADER, evaluate, mergeLedger, parseLedger, removeRows, toCsv } from '../engine/index.js'
+import { HEADER, SETTINGS, evaluate, mergeLedger, parseLedger, parseSettings, removeRows, toCsv } from '../engine/index.js'
 import { initBrokers, openSetup } from './brokers.js'
 import { getMarket, startMarket } from './market.js'
 import { anchorOf, placeAt } from './placement.js'
 
 const W = 200, H = 300
 const LEDGER = join(app.getPath('userData'), 'ledger.csv')
-let win
+const SETTINGS_FILE = join(app.getPath('userData'), 'settings.json')
+let win, settingsWin
 // 結束時視窗會先被銷毀，計時器、滑鼠事件、螢幕變化卻可能還在進來 —— 一律透過這裡拿視窗
 const pet = () => (win && !win.isDestroyed() ? win : null)
 let anchor = { right: 40, bottom: 0 } // 寵物貼著哪個角落、距離多少；預設右下角
@@ -29,11 +30,13 @@ const today = () => {
 }
 
 const readLedger = async () => (existsSync(LEDGER) ? parseLedger(await readFile(LEDGER, 'utf8')) : [])
+// 寵物設定：沒有或壞掉就全部用預設值（壞掉的單項由 parseSettings 換成預設），不影響寵物
+const readSettings = () => readFile(SETTINGS_FILE, 'utf8').then(JSON.parse).catch(() => ({}))
 
 async function refresh() {
   let state
   try {
-    state = evaluate(await readLedger(), today(), getMarket())
+    state = evaluate(await readLedger(), today(), getMarket(), await readSettings())
   } catch (e) {
     state = { error: e.message }
   }
@@ -85,6 +88,36 @@ async function exportBackup() {
   if (!canceled) await copyFile(LEDGER, filePath)
 }
 
+// 改了就存、寵物馬上跟著變，所以不用另外做預覽
+export function openSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) return settingsWin.focus()
+  settingsWin = new BrowserWindow({
+    width: 480,
+    height: Math.min(1000, screen.getPrimaryDisplay().workArea.height), // 小螢幕（例如 1366×768 的筆電）就捲動
+    title: '寵物設定',
+    webPreferences: { preload: join(import.meta.dirname, 'preload.cjs') },
+  })
+  settingsWin.loadFile(join(import.meta.dirname, 'settings.html'))
+  app.focus({ steal: true })
+}
+
+ipcMain.handle('settings:get', async () => ({ values: parseSettings(await readSettings()), limits: SETTINGS }))
+// 只存跟預設不一樣的：「恢復預設」就是空的檔案，以後預設值改了也會跟著改。
+// 排隊一次寫一個（跟帳本一樣）：設定視窗每改一格就存一次，連續改時不能共用暫存檔互相蓋掉
+let savingSettings = Promise.resolve()
+ipcMain.handle('settings:set', (_e, input) => {
+  const task = savingSettings.then(async () => {
+    const values = parseSettings(input)
+    const changed = Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== SETTINGS[key].value))
+    await writeFile(`${SETTINGS_FILE}.tmp`, JSON.stringify(changed, null, 2))
+    await rename(`${SETTINGS_FILE}.tmp`, SETTINGS_FILE)
+    await refresh()
+    return values
+  })
+  savingSettings = task.catch(() => {}) // 這次失敗不影響下一次
+  return task
+})
+
 async function showLedger() {
   if (!existsSync(LEDGER)) await writeFile(LEDGER, `${HEADER}\n`)
   shell.showItemInFolder(LEDGER)
@@ -95,6 +128,7 @@ const actions = [
   { label: '匯出備份…', click: exportBackup },
   { label: '在資料夾中顯示帳本（手動記帳）', click: showLedger },
   { label: '證券帳戶同步…', click: openSetup },
+  { label: '寵物設定…', click: openSettings },
 ]
 const menu = Menu.buildFromTemplate([...actions, { type: 'separator' }, { label: '結束 NestEgg', role: 'quit' }])
 
