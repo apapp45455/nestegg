@@ -10,6 +10,7 @@
     legend { font-weight: 700; padding: 0 4px; }
     .inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 400; }
     .inline input { width: 5.5em; }
+    .levels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   </style>
 </head>
 <body>
@@ -39,7 +40,17 @@
       <label class="inline">持股市值比成本高或低 <input name="fur" type="number" inputmode="decimal"> % 以上，毛色發亮或黯淡</label>
       <p class="note">指數沒跌是晴天，跌得不多是下雨。行情只影響天氣、心情、毛色，不影響成長與健康。</p>
     </fieldset>
-    <p class="note">孵化、長大和體型只看時間與投入的本金，不能調整。</p>
+    <fieldset>
+      <legend>多少本金長大一級</legend>
+      <div class="levels">
+        <label class="inline">Lv2 <input name="lv2" type="number" inputmode="decimal"> 萬元</label>
+        <label class="inline">Lv3 <input name="lv3" type="number" inputmode="decimal"> 萬元</label>
+        <label class="inline">Lv4 <input name="lv4" type="number" inputmode="decimal"> 萬元</label>
+        <label class="inline">Lv5 <input name="lv5" type="number" inputmode="decimal"> 萬元</label>
+      </div>
+      <p class="note">本金是買入金額加手續費，賣出時按平均成本扣掉。每一級要比前一級高。</p>
+    </fieldset>
+    <p class="note">孵化和長大成年只看第一次買入後過了幾天，不能調整。</p>
     <div class="row"><button type="button" id="reset">恢復預設</button></div>
     <p id="result" class="error" hidden></p>
   </form>

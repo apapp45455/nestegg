@@ -106,9 +106,18 @@ test('settings: 週投的人照週算飽足；敏感度調高後小漲跌不影�
 
 test('settings: 手改壞的設定（字串、超出範圍、天數有小數）每一項各自回到預設', () => {
   const defaults = parseSettings()
-  assert.deepEqual(defaults, { period: 31, grace: 7, typhoon: 3, mood: 1, fur: 5 })
+  assert.deepEqual(defaults, { period: 31, grace: 7, typhoon: 3, mood: 1, fur: 5, lv2: 3, lv3: 10, lv4: 30, lv5: 100 })
   assert.deepEqual(parseSettings({ period: '7', grace: -1, typhoon: 99, mood: 2, fur: null }), { ...defaults, mood: 2 })
   assert.equal(parseSettings({ period: 7.5 }).period, 31)
   assert.equal(parseSettings({ mood: 0.5 }).mood, 0.5) // 百分比可以有小數
   assert.deepEqual(parseSettings('壞掉的檔案'), defaults)
+})
+
+test('settings: 體型門檻可以調（萬元）；沒有一級比一級高就四個一起回到預設', () => {
+  const l = [buy('2026-01-01', 50_000)]
+  assert.equal(evaluate(l, '2026-02-01').size, 2) // 預設：3 萬 Lv2、10 萬 Lv3
+  assert.equal(evaluate(l, '2026-02-01', null, { lv2: 1, lv3: 2, lv4: 4, lv5: 5 }).size, 5)
+  assert.equal(evaluate(l, '2026-02-01', null, { lv2: 10, lv3: 20, lv4: 40, lv5: 80 }).size, 1)
+  const broken = parseSettings({ lv2: 50, mood: 2 }) // Lv2 比 Lv3（預設 10 萬）還高
+  assert.deepEqual([broken.lv2, broken.lv3, broken.mood], [3, 10, 2]) // 其他設定不受影響
 })

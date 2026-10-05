@@ -356,12 +356,24 @@ async function runAll() {
     await set('fur', '500')
     await wait(500)
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2, period: 7 })
+    await set('fur', '5')
+    // 體型門檻調低（萬元）：本金一樣，寵物馬上長到 Lv5
+    const size = await page('state.size')
+    assert.ok(size < 5, `預設門檻下是 Lv${size}`)
+    for (const [i, v] of ['0.1', '0.2', '0.3', '0.4'].entries()) await set(`lv${i + 2}`, v)
+    await until('state.size', v => v === 5, '長到 Lv5')
+    // 沒有比前一級高：不存
+    await set('lv3', '0.1')
+    await wait(500)
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 2, period: 7, lv2: 0.1, lv3: 0.2, lv4: 0.3, lv5: 0.4 })
+    await set('lv3', '0.2')
     // 連續快速存檔（不等上一次存完）：每一次都成功，留下的是最後一次
     const saves = await page('Promise.allSettled([2, 3, 4, 5].map(mood => window.petSettings.set({ mood }))).then(r => r.map(x => x.status))', settings())
     assert.deepEqual(saves, ['fulfilled', 'fulfilled', 'fulfilled', 'fulfilled'])
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mood: 5 })
     await page('document.getElementById("reset").click()', settings())
     await until('state.mood', v => v === 'happy', '恢復預設後又開心')
+    assert.equal(await page('state.size'), size)
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {})
     assert.equal(await page('document.querySelector("[name=fur]").value', settings()), '5')
     // 手改壞的設定檔：讀出來是預設值（寵物用同一個讀法，不會變成「帳本讀取失敗」）

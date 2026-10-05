@@ -4,10 +4,9 @@
 export const HEADER = 'date,symbol,action,shares,amount,fee'
 const ACTIONS = ['buy', 'sell', 'dividend']
 
-// 數值表（Phase 0）：調數值只改這裡。成長只看時間與投入，這幾個不開放使用者調整（調了養寵物就沒有意義）
+// 數值表（Phase 0）：調數值只改這裡。孵化、長大只看時間，不開放使用者調整（調了養寵物就沒有意義）
 export const HATCH_DAYS = 7 // 第一次買入後幾天孵化
 export const ADULT_DAYS = 365 // 幾天長成成年
-export const SIZE_STEPS = [30_000, 100_000, 300_000, 1_000_000] // 本金門檻 → 體型 Lv1..5
 
 // 使用者在「寵物設定」可以調的（存在 settings.json）；value 是預設值
 export const SETTINGS = {
@@ -16,12 +15,23 @@ export const SETTINGS = {
   typhoon: { value: 3, min: 0.5, max: 10, step: 0.5 }, // 加權指數單日跌幅 ≥ 幾 % → 颱風（其餘下跌 → 下雨）
   mood: { value: 1, min: 0.1, max: 10, step: 0.1 }, // 持股單日漲跌 ± 幾 % 以上 → 開心 / 難過
   fur: { value: 5, min: 0.5, max: 50, step: 0.5 }, // 持股市值相對成本 ± 幾 % 以上 → 毛色發亮 / 黯淡
+  // 本金到幾萬元長大一級（Lv1 → Lv5）；每個人的資產規模差很多，所以可以調
+  lv2: { value: 3, min: 0.1, max: 10_000, step: 0.1 },
+  lv3: { value: 10, min: 0.1, max: 10_000, step: 0.1 },
+  lv4: { value: 30, min: 0.1, max: 10_000, step: 0.1 },
+  lv5: { value: 100, min: 0.1, max: 10_000, step: 0.1 },
 }
-// 設定檔可能被手改壞：每一項不是數字、超出範圍、天數不是整數，就用預設值
-export const parseSettings = input => Object.fromEntries(Object.entries(SETTINGS).map(([key, { value, min, max, step }]) => {
-  const v = input?.[key]
-  return [key, typeof v === 'number' && v >= min && v <= max && (step < 1 || Number.isInteger(v)) ? v : value]
-}))
+export const LEVELS = ['lv2', 'lv3', 'lv4', 'lv5']
+// 設定檔可能被手改壞：每一項不是數字、超出範圍、天數不是整數，就用預設值；
+// 體型門檻要一級比一級高，不然四個一起回到預設
+export function parseSettings(input) {
+  const s = Object.fromEntries(Object.entries(SETTINGS).map(([key, { value, min, max, step }]) => {
+    const v = input?.[key]
+    return [key, typeof v === 'number' && v >= min && v <= max && (step < 1 || Number.isInteger(v)) ? v : value]
+  }))
+  if (LEVELS.some((key, i) => i && s[key] <= s[LEVELS[i - 1]])) for (const key of LEVELS) s[key] = SETTINGS[key].value
+  return s
+}
 
 const DAY = 864e5
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / DAY)
@@ -120,7 +130,7 @@ export function evaluate(ledger, today, market = null, settings = {}) {
   return {
     stage: age < HATCH_DAYS ? 'egg' : age < ADULT_DAYS ? 'baby' : 'adult',
     age,
-    size: 1 + SIZE_STEPS.filter(t => principal >= t).length,
+    size: 1 + LEVELS.filter(key => principal >= s[key] * 10_000).length,
     satiety: Math.min(3, Math.max(0, 3 - missed)), // 3 = 飽，漏一期少一碗，最低 0（不會死）
     ...env,
   }

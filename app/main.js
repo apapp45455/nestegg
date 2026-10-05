@@ -93,7 +93,7 @@ export function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) return settingsWin.focus()
   settingsWin = new BrowserWindow({
     width: 480,
-    height: Math.min(780, screen.getPrimaryDisplay().workArea.height), // 1366×768 的筆電放不下 780
+    height: Math.min(1000, screen.getPrimaryDisplay().workArea.height), // 小螢幕（例如 1366×768 的筆電）就捲動
     title: '寵物設定',
     webPreferences: { preload: join(import.meta.dirname, 'preload.cjs') },
   })
