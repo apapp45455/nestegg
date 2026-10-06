@@ -23,7 +23,7 @@ writeFileSync(join(DATA, 'market.json'), JSON.stringify({
 }))
 // No network: the market sources are answered by fakes (net.gate holds the TWSE answers, net.nasdaqDown fails Nasdaq),
 // anything else outside the local fake servers is recorded in net.unexpected and fails as if offline (checked at the end)
-const net = { requests: [], unexpected: [], gate: null, nasdaqDown: false, twDate: '1151005', ibkrReady: new Set() }
+const net = { requests: [], unexpected: [], gate: null, nasdaqDown: false, twDate: '1151005', ibkrReady: new Set(), cbcDown: false }
 const FAKE_NET = {
   'openapi.twse.com.tw/v1/exchangeReport/MI_INDEX': () => [{ 日期: net.twDate, 指數: '發行量加權股價指數', 漲跌: '+', 漲跌百分比: '1.20' }],
   'openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL': () => [{ Code: '0050', ClosingPrice: '112.00', Change: '2.0000' }],
@@ -51,8 +51,8 @@ const FAKE_NET = {
       .map(t => `<Trade accountId="U1234567" currency="USD" assetCategory="STK" levelOfDetail="EXECUTION" ${Object.entries(t).map(([k, v]) => `${k}="${v}"`).join(' ')} />`)
     return `<FlexQueryResponse queryName="NestEgg" type="AF"><FlexStatements count="1"><FlexStatement accountId="U1234567" fromDate="${fd}" toDate="${td}"><Trades>${trades.join('')}</Trades></FlexStatement></FlexStatements></FlexQueryResponse>`
   },
-  // The central bank's rates, published up to 2026-03-31
-  'cpx.cbc.gov.tw/API/DataAPI/Get': () => ({
+  // The central bank's rates, published up to 2026-03-31; net.cbcDown answers a maintenance page instead
+  'cpx.cbc.gov.tw/API/DataAPI/Get': () => net.cbcDown ? '<html><body>系統維護中</body></html>' : ({
     data: { structure: { Table1: [{ data: '新台幣NTD/USD' }] }, dataSets: [['20251103', '30.000'], ['20260302', '31.000'], ['20260331', '31.500']] },
   }),
 }
@@ -658,6 +658,16 @@ async function runAll() {
     // Syncing again (60 days back) adds nothing twice
     assert.equal((await page("window.broker.sync('ibkr')")).ok.added, 0)
     assert.equal(ledgerLines(',VOO,'), 2)
+    // The central bank answering a maintenance page: a clear message, no IBKR request spent, and auto sync isn't paused
+    net.cbcDown = true
+    const asked = net.requests.filter(u => u.includes('/SendRequest')).length
+    try {
+      assert.match((await page("window.broker.sync('ibkr')")).error ?? '', /中央銀行的匯率下載失敗/)
+    } finally {
+      net.cbcDown = false
+    }
+    assert.equal(net.requests.filter(u => u.includes('/SendRequest')).length, asked)
+    assert.equal((await page("window.broker.status('ibkr')")).ok.paused, undefined)
   })
 
   await test('畫面：寵物真的有畫出來', async () => {

@@ -84,8 +84,10 @@ export default {
   },
 
   async fetch({ creds, from, to }) {
-    // Rates first: if they can't be read, no IBKR request is spent
-    const rates = parseCbcRates(JSON.parse(await get(CBC).catch(e => { throw new Error(`中央銀行的匯率下載失敗：${e.message}`) })))
+    // Rates first: if they can't be read (offline, or a maintenance page instead of the data), no IBKR request is spent
+    const rates = await get(CBC)
+      .then(body => parseCbcRates(JSON.parse(body)))
+      .catch(e => { throw new Error(`中央銀行的匯率下載失敗：${e.message}`) })
     const pace = pacer()
     const trades = [], accounts = new Set()
     for (const window of flexWindows(from, to)) {
