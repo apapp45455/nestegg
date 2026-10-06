@@ -56,7 +56,7 @@ const number = s => Math.abs(Number.parseFloat(String(s ?? '').replace(/,/g, '')
 // (the last one published on or before it). A trade newer than the latest published rate waits for the next sync, so its
 // amount never changes once written (a changed amount would look like a second trade).
 export function toRows(trades, rates, from, to) {
-  const rows = [], skipped = { currency: new Set(), date: 0 }
+  const rows = [], skipped = { currency: new Set(), category: new Set(), date: 0 }
   let waiting = 0
   const latest = rates.at(-1)?.[0]
   const rateOn = date => {
@@ -67,8 +67,11 @@ export function toRows(trades, rates, from, to) {
     }
     return found
   }
-  // Only stock executions: a query that also lists orders or closed lots would count the same shares twice
-  const stocks = trades.filter(t => t.assetCategory === 'STK' && (!t.levelOfDetail || t.levelOfDetail === 'EXECUTION'))
+  // Only executions: a query that also lists orders or closed lots would count the same shares twice.
+  // Only stocks and ETFs (STK): options, futures, forex… are named in a warning
+  const executions = trades.filter(t => !t.levelOfDetail || t.levelOfDetail === 'EXECUTION')
+  for (const t of executions) if (t.assetCategory !== 'STK') skipped.category.add(t.assetCategory)
+  const stocks = executions.filter(t => t.assetCategory === 'STK')
   // IBKR lists a cancelled execution twice: the original, and a "BUY (Ca.)" or "SELL (Ca.)" entry pointing at it with
   // origTradeID. Both are left out; without the ID, the original is found by symbol, date, quantity and price
   const isCancel = t => /\(Ca\.\)/.test(t.buySell ?? '')
@@ -104,6 +107,7 @@ export function toRows(trades, rates, from, to) {
   }
   const warnings = []
   if (waiting) warnings.push(`${waiting} 筆最近的交易還等不到中央銀行公布當天匯率，之後同步會補上`)
+  if (skipped.category.size) warnings.push(`略過股票與 ETF 以外的成交（${[...skipped.category].join('、')}）`)
   if (skipped.currency.size) warnings.push(`略過非美元的交易（${[...skipped.currency].join('、')}），NestEgg 目前只換算美元`)
   // A cancellation can arrive after the original was already written by an earlier sync, which merges and never deletes
   if (cancels.length) {

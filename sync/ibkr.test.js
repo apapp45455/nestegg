@@ -68,9 +68,10 @@ test('toRows: US-dollar stock executions in NT$ at the rate of the trade date; t
     { date: '2025-09-20', symbol: 'VOO', action: 'sell', shares: 3, amount: 47_424, fee: 31 }, // A Saturday: Friday's 30.4, once Monday's is out
   ])
   assert.deepEqual(parseLedger(toCsv(rows)), rows) // Valid ledger rows
-  assert.equal(warnings.length, 3)
+  assert.equal(warnings.length, 4)
   assert.match(warnings.join('\n'), /1 筆最近的交易還等不到/) // QQQ on 09-23, after the latest published rate
   assert.match(warnings.join('\n'), /非美元的交易（HKD）/)
+  assert.match(warnings.join('\n'), /股票與 ETF 以外的成交（OPT）/)
   assert.match(warnings.join('\n'), /IB 取消了 1 筆成交（2025-09-17 VOO），這次不記/) // Neither the cancelled buy nor its cancellation
   // Outside the requested dates: left to the sync that asks for them
   assert.deepEqual(toRows(parseTrades(STATEMENT), parseCbcRates(CBC), '2025-09-16', '2025-09-16').rows.map(r => r.symbol), ['BRK.B'])
