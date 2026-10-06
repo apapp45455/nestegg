@@ -176,7 +176,10 @@ async function autoSync() {
 
 async function connect(id, form) {
   const b = broker(id)
-  const creds = b.credentials(form)
+  // keepKeys: connect again with the saved keys, for example to import Fubon's history after the first connection
+  const saved = form.keepKeys ? await readConfig(b).catch(() => null) : null
+  if (form.keepKeys && !saved) throw new Error(`請先連接${b.name}`)
+  const creds = saved ? await unseal(saved.secret).catch(e => { throw new Error(`讀不到儲存的金鑰：${e.message}`) }) : b.credentials(form)
   const connectOnly = b.connectOnly?.(form) // used for this connection only; never saved
   const since = String(form.since ?? '')
   if (!isDate(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期') // Also rejects dates like 2025-02-31

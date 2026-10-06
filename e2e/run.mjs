@@ -219,10 +219,14 @@ async function runAll() {
     const fresh = await connect('')
     assert.equal(fresh.error, undefined, fresh.error)
     assert.deepEqual([fresh.ok.added, ledgerLines(',0050,'), ledgerLines(`${today()},0050,buy,${HOLDINGS[0].todayQty},`)], [1, 1, 1])
-    // Then import the history: the real trades replace that buy, and the holdings match, so nothing else is added
-    const history = await connect('history-key')
+    // Then import the history from the connected page (saved keys plus the history key): the real trades replace
+    // that buy, and the holdings match, so nothing else is added
+    const history = await page(`window.broker.connect('fubon', { historyKey: 'history-key', since: '2025-10-01', keepKeys: true })`)
     assert.equal(history.error, undefined, history.error)
     assert.deepEqual([ledgerLines(',0050,'), ledgerLines(`${today()},0050,`)], [11, 0])
+    assert.equal(logins().at(-1), 'e2e-key') // The history key was used once; the saved daily key is unchanged
+    assert.equal((await page("window.broker.sync('fubon')")).ok.added, 0)
+    assert.equal(logins().at(-1), 'e2e-key')
   })
 
   await test('富邦同步：同步中按「連線並同步」會被擋下，不會拿到舊結果、也不會蓋掉儲存的金鑰', async () => {

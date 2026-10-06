@@ -110,6 +110,18 @@
           <button id="sync" type="button" class="primary">立即同步</button>
           <button id="disconnect" type="button">清除儲存的金鑰</button>
         </div>
+        <!-- Import the history after connecting: the saved keys log in, the history key is used once -->
+        <form id="history">
+          <h2>匯入過去的成交紀錄（選用）</h2>
+          <p class="note">需要一把有「證券下單」權限的金鑰，只用這一次、不會儲存，匯入後請到富邦把它刪除。一次選好整段期間就好，NestEgg 會自己每 30 天分段查詢；被富邦限流時會自動放慢重試。匯入的紀錄會取代之前對帳記下的富邦紀錄，不會重複。</p>
+          <label>歷史匯入用 API Key
+            <input name="historyKey" type="password" autocomplete="off" required>
+          </label>
+          <label>從哪一天開始匯入
+            <input name="since" type="date" required>
+          </label>
+          <div><button type="submit">匯入</button></div>
+        </form>
       </div>
       <p id="result" role="status"></p>
     </li>
