@@ -202,7 +202,7 @@ app.whenReady().then(() => {
   // Re-read every 10 seconds to pick up manual ledger edits and the change of day
   setInterval(refresh, 10_000)
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, place)
-  initBrokers({ today, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
+  initBrokers({ today, readLedger, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
   startMarket({ symbols: async () => (await records().catch(() => [])).map(r => r.symbol), onUpdate: refresh })
 })
 

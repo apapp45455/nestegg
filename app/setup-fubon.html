@@ -11,7 +11,7 @@
   <a class="back" href="setup.html">← 選擇其他券商</a>
   <header>
     <h1>連接富邦證券</h1>
-    <p>讓寵物每天自動讀取你的成交紀錄。NestEgg 只會<strong>登入與查詢</strong>，程式裡沒有任何下單功能。</p>
+    <p>讓寵物每天自動對帳你的富邦持股。NestEgg 只會<strong>登入與查詢</strong>，程式裡沒有任何下單功能。</p>
   </header>
 
   <ol class="steps">
@@ -54,10 +54,24 @@
       <h2>建立唯讀的 API Key</h2>
       <p>回到<a href="https://www.fbs.com.tw/TradeAPI/docs/key/" target="_blank">「金鑰管理與憑證匯出」頁</a>，按「新增金鑰」：</p>
       <ul>
-        <li><strong>權限只開帳務查詢，不要開交易下單。</strong>就算金鑰外洩，也沒有人能拿它下單。</li>
+        <li><strong>API 權限勾「證券業務」，不要勾「證券下單」。</strong>就算金鑰外洩，也沒有人能拿它下單。「行情」可勾可不勾。</li>
         <li>IP 限制：家裡網路的 IP 常會變動，可以先留空。</li>
         <li>Secret Key 只會顯示一次，建立後馬上複製起來。</li>
+        <li>金鑰有到期日，到期後同步會暫停並提醒你，再建立一把新的就好。</li>
       </ul>
+      <p class="note">NestEgg 每天用這把金鑰查你目前的持股，和上次比對：股數變多就記一筆買進、變少就記一筆賣出，日期是發現變化的那天（電腦沒開的日子會晚幾天，寵物有 7 天寬限，不太受影響）。</p>
+    </li>
+
+    <li>
+      <h2>（選用）匯入過去的成交紀錄</h2>
+      <p><strong>不需要過去的紀錄就跳過這一步，只開「證券業務」就能同步，不用開「證券下單」。</strong>這樣你目前的持股會記成今天買進，寵物從蛋開始養。</p>
+      <p>想讓寵物從你真正開始投資的那天算起，就需要過去的成交紀錄。富邦要有「證券下單」權限才查得到，所以：</p>
+      <ol>
+        <li>另外建立一把勾「證券業務」＋「證券下單」的金鑰，<strong>到期日選最近的日期</strong>。這把金鑰能下單，請只貼在這裡</li>
+        <li>貼到下面的「歷史匯入用 API Key」。它只在這次連線時用一次，<strong>不會儲存</strong></li>
+        <li>匯入完成後，回富邦的金鑰管理頁<strong>把這把金鑰刪除</strong></li>
+      </ol>
+      <p class="note">起始日之前就買的股票，會記成今天買進。之前用 CSV 匯入過同一段期間的富邦紀錄的話，請擇一來源，以免重複。</p>
     </li>
 
     <li id="step-connect">
@@ -67,8 +81,11 @@
         <label>身分證字號
           <input name="id" autocomplete="off" spellcheck="false" autocapitalize="characters" required>
         </label>
-        <label>API Key（Secret Key）
+        <label>API Key（Secret Key，只勾「證券業務」的那把）
           <input name="apiKey" type="password" autocomplete="off" required>
+        </label>
+        <label>歷史匯入用 API Key（選填，有「證券下單」權限，只用這一次）
+          <input name="historyKey" type="password" autocomplete="off" placeholder="不需要過去的紀錄就留空">
         </label>
         <div class="field">憑證檔
           <div class="row">
@@ -79,11 +96,11 @@
         <label>憑證密碼
           <input name="certPass" type="password" autocomplete="off" placeholder="沒改過就留空（預設是身分證字號）">
         </label>
-        <label>從哪一天開始匯入
+        <label>從哪一天開始匯入（有填歷史匯入用 API Key 才會用到）
           <input name="since" type="date" required>
         </label>
         <div><button type="submit" class="primary">連線並同步</button></div>
-        <p class="note">身分證字號、API Key 與憑證密碼會用系統鑰匙圈加密，只存在這台電腦，用來每天自動同步一次。Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」。</p>
+        <p class="note">身分證字號、API Key 與憑證密碼會用系統鑰匙圈加密，只存在這台電腦，用來每天自動同步一次；歷史匯入用 API Key 用完就丟，不會儲存。Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」。</p>
       </form>
 
       <div id="connected" hidden>
@@ -93,13 +110,25 @@
           <button id="sync" type="button" class="primary">立即同步</button>
           <button id="disconnect" type="button">清除儲存的金鑰</button>
         </div>
+        <!-- Import the history after connecting: the saved keys log in, the history key is used once -->
+        <form id="history">
+          <h2>匯入過去的成交紀錄（選用）</h2>
+          <p class="note">需要一把有「證券下單」權限的金鑰，只用這一次、不會儲存，匯入後請到富邦把它刪除。一次選好整段期間就好，NestEgg 會自己每 30 天分段查詢；被富邦限流時會自動放慢重試。匯入的紀錄會取代之前對帳記下的富邦紀錄，不會重複。</p>
+          <label>歷史匯入用 API Key
+            <input name="historyKey" type="password" autocomplete="off" required>
+          </label>
+          <label>從哪一天開始匯入
+            <input name="since" type="date" required>
+          </label>
+          <div><button type="submit">匯入</button></div>
+        </form>
       </div>
       <p id="result" role="status"></p>
     </li>
   </ol>
 
   <footer class="note">
-    成交紀錄不含手續費，所以本金會略少一點。如果之前已經用 CSV 匯入過同一段期間的紀錄，請擇一來源，以免重複。
+    匯入的過去成交紀錄不含手續費，所以本金會略少一點；之後每天對帳用的是富邦的成本價。如果之前已經用 CSV 匯入過富邦的紀錄，請擇一來源，以免重複。
   </footer>
 </main>
 <script src="setup.js"></script>

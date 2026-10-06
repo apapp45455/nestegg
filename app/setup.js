@@ -34,6 +34,7 @@ async function render() {
   }
   $('step-connect').classList.toggle('done', s.connected)
   form.hidden = s.connected
+  if ($('history')) $('history').elements.since.max = s.today
   $('connected').hidden = !s.connected
   $('connected-info').textContent = s.connected ? `✓ 已連線 · 從 ${s.since} 開始匯入 · 上次同步 ${s.lastSync}` : ''
   $('paused').hidden = !s.paused
@@ -85,6 +86,21 @@ function initBrokerPage() {
         form.reset()
         certPath = ''
         if ($('cert-name')) $('cert-name').textContent = '尚未選擇'
+        await render()
+      }
+    })
+  }
+
+  // Fubon: import the history later, logging in with the saved keys (only the history key and start date are entered)
+  if ($('history')) $('history').onsubmit = e => {
+    e.preventDefault()
+    const history = $('history')
+    busy(history.querySelector('[type=submit]'), '匯入中…', async () => {
+      show('正在匯入過去的成交紀錄，期間長的話要幾分鐘…')
+      const res = await window.broker.connect(id, { ...Object.fromEntries(new FormData(history)), keepKeys: true })
+      report(res)
+      if (res.ok) {
+        history.reset()
         await render()
       }
     })

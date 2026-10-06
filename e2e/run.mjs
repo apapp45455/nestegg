@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -22,6 +23,9 @@ mkdirSync(SDK, { recursive: true })
 cpSync(join(import.meta.dirname, 'fake-fubon-sdk'), SDK, { recursive: true })
 const CERT = join(DATA, 'test-cert.pfx')
 writeFileSync(CERT, 'not a real certificate')
+const { HOLDINGS } = createRequire(import.meta.url)(join(SDK, 'trade.js'))
+const { dateWindows } = await import('../sync/fubon.js')
+const logins = () => readFileSync(join(SDK, 'logins.txt'), 'utf8').trim().split('\n')
 // Local date, like the app's today()
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10)
 // Sinopac: pretend the Shioaji command-line program is installed; the step that really starts the server is replaced by the fake server below
@@ -123,14 +127,17 @@ async function runAll() {
     assert.match(await page('bubble.hidden ? "" : bubble.textContent'), /還沒有交易紀錄/)
   })
 
-  await test('富邦同步：用假 SDK 連線，只算現股、寫進帳本、寵物孵化', async () => {
+  await test('富邦同步：用一次性的歷史金鑰匯入成交紀錄，只算現股、寫進帳本、寵物孵化', async () => {
     const status = await page("window.broker.status('fubon')")
     assert.equal(status.ok.sdk, '2.4.0-fake')
     const badDate = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, since: '2025-02-31' })`)
     assert.match(badDate.error, /起始日期/) // A nonexistent date gets a clear message, not a cryptic RangeError
-    const res = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
+    // Fubon throttles one query (業務系統流量控管): NestEgg waits, retries and still imports everything
+    writeFileSync(join(SDK, 'throttle-once'), dateWindows('2025-10-01', today()).at(-1)[0])
+    const res = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', historyKey: 'history-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
     assert.equal(res.error, undefined, res.error)
-    assert.equal(res.ok.added, 11) // 12 trades; the margin one doesn't count
+    assert.equal(existsSync(join(SDK, 'throttle-once')), false)
+    assert.equal(res.ok.added, 11) // 12 trades; the margin one doesn't count, and the holdings match the history, so reconciling adds nothing
     assert.equal(res.ok.accounts, 1) // The futures account isn't queried
     assert.equal(ledgerLines(), 11)
     await until('state.stage', v => v === 'baby' || v === 'adult', '孵化')
@@ -142,7 +149,7 @@ async function runAll() {
     assert.match(JSON.parse(cfg).secret, /^[A-Za-z0-9+/=]{20,}$/)
   })
 
-  await test('富邦同步：再同步一次不會重複；登出失敗也不影響查到的紀錄', async () => {
+  await test('富邦同步：再同步一次不會重複；登出失敗也不影響查到的紀錄；歷史金鑰只用了一次', async () => {
     writeFileSync(join(SDK, 'fail-logout'), '')
     try {
       const res = await page("window.broker.sync('fubon')")
@@ -152,6 +159,74 @@ async function runAll() {
       rmSync(join(SDK, 'fail-logout'))
     }
     assert.equal(ledgerLines(), 11)
+    // The history key was used once while connecting and never saved: daily syncs log in with the 證券業務 key only
+    assert.deepEqual(logins(), ['history-key', 'e2e-key', 'e2e-key'])
+  })
+
+  await test('富邦對帳：持股變多記成今天買進、變少記成今天賣出，只要「證券業務」權限', async () => {
+    const [cash, margin] = HOLDINGS
+    const positions = join(SDK, 'positions.json')
+    try {
+      // Bought 100 more for 11,500; the margin position doesn't count
+      const cost = cash.costPrice * cash.todayQty + 11_500
+      writeFileSync(positions, JSON.stringify([{ ...cash, todayQty: cash.todayQty + 100, costPrice: cost / (cash.todayQty + 100) }, { ...margin, todayQty: 3000 }]))
+      const bought = await page("window.broker.sync('fubon')")
+      assert.equal(bought.error, undefined, bought.error)
+      assert.equal(bought.ok.added, 1)
+      assert.equal(ledgerLines(`${today()},0050,buy,100,11500,0`), 1)
+      // Then sold those 100 again: a sell at the recorded average cost
+      rmSync(positions)
+      const sold = await page("window.broker.sync('fubon')")
+      assert.equal(sold.ok.added, 1)
+      assert.equal(ledgerLines(`${today()},0050,sell,100,`), 1)
+      assert.equal((await page("window.broker.sync('fubon')")).ok.added, 0) // Nothing changed since
+    } finally {
+      rmSync(positions, { force: true })
+    }
+    assert.equal(ledgerLines(), 13)
+  })
+
+  await test('富邦對帳：自動同步遇到持股全空就停下來請你確認，帳本不動', async () => {
+    writeFileSync(join(SDK, 'positions.json'), '[]')
+    try {
+      await assert.rejects(syncSaved('fubon'), /沒有回傳任何持股/)
+      assert.match((await page("window.broker.status('fubon')")).ok.paused, /沒有回傳任何持股/)
+      assert.equal(ledgerLines(), 13)
+    } finally {
+      rmSync(join(SDK, 'positions.json'))
+    }
+    assert.equal((await page("window.broker.sync('fubon')")).ok.added, 0) // Holdings are back: the manual sync resumes
+    assert.equal((await page("window.broker.status('fubon')")).ok.paused, undefined)
+  })
+
+  await test('富邦：金鑰權限不夠時說清楚缺哪個權限，也不會存下新的金鑰', async () => {
+    const config = () => readFileSync(join(DATA, 'fubon', 'config.json'), 'utf8')
+    const before = config()
+    const connect = (apiKey, historyKey) =>
+      page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: '${apiKey}', historyKey: '${historyKey}', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
+    assert.match((await connect('e2e-key', 'plain-key')).error, /歷史匯入用的 API Key 沒有「證券下單」權限/)
+    assert.match((await connect('no-accounting-key', '')).error, /沒有「證券業務」權限/)
+    assert.equal(config(), before)
+    assert.equal(ledgerLines(), 13)
+  })
+
+  await test('富邦：之後才用歷史金鑰重新連線，歷史取代之前對帳記下的紀錄，不會重複算', async () => {
+    // First connect without history: holdings already recorded become one buy today at Fubon's cost
+    const connect = historyKey =>
+      page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', historyKey: '${historyKey}', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
+    rmSync(join(DATA, 'fubon', 'rows.json'))
+    writeFileSync(join(DATA, 'ledger.csv'), readFileSync(join(DATA, 'ledger.csv'), 'utf8').split('\n').filter(l => !l.includes(',0050,')).join('\n'))
+    const fresh = await connect('')
+    assert.equal(fresh.error, undefined, fresh.error)
+    assert.deepEqual([fresh.ok.added, ledgerLines(',0050,'), ledgerLines(`${today()},0050,buy,${HOLDINGS[0].todayQty},`)], [1, 1, 1])
+    // Then import the history from the connected page (saved keys plus the history key): the real trades replace
+    // that buy, and the holdings match, so nothing else is added
+    const history = await page(`window.broker.connect('fubon', { historyKey: 'history-key', since: '2025-10-01', keepKeys: true })`)
+    assert.equal(history.error, undefined, history.error)
+    assert.deepEqual([ledgerLines(',0050,'), ledgerLines(`${today()},0050,`)], [11, 0])
+    assert.equal(logins().at(-1), 'e2e-key') // The history key was used once; the saved daily key is unchanged
+    assert.equal((await page("window.broker.sync('fubon')")).ok.added, 0)
+    assert.equal(logins().at(-1), 'e2e-key')
   })
 
   await test('富邦同步：同步中按「連線並同步」會被擋下，不會拿到舊結果、也不會蓋掉儲存的金鑰', async () => {
