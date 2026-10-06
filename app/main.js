@@ -162,7 +162,8 @@ let savingPlans = Promise.resolve()
 ipcMain.handle('plans:set', (_e, input) => {
   const task = savingPlans.then(async () => {
     const file = parsePlanFile(input) // Throws with the problem, which the window shows; nothing is saved
-    await writeAtomic(PLANS_FILE, JSON.stringify(file, null, 2))
+    // Without sells, keep the plans-only array older versions read, so going back to one doesn't break the pet
+    await writeAtomic(PLANS_FILE, JSON.stringify(file.sells.length ? file : file.plans, null, 2))
     await refresh()
     updateMarket() // A plan on a new US ticker gets its prices now
     return describePlans(file)

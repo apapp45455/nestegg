@@ -191,6 +191,11 @@ test('sells: selling part of a plan holding removes that fraction of its princip
   assert.equal(evaluate(sold, '2026-04-10').size, 1) // NT$15,000
   assert.equal(evaluate(sold, '2026-04-10').age, evaluate(ledger, '2026-04-10').age) // Selling never changes age
   assert.deepEqual(sellRows([sell], '2026-04-07'), []) // Not sold yet
+  // Sold on a debit day: the shares held before the sale don't include that day's contribution, so it's all kept.
+  // 30,000 before it, a quarter kept, plus the 10,000 of 04-06: 17,500, above a Lv2 of NT$15,000
+  const plain = planRows([plan], '2026-04-10')
+  const sameDay = [...plain, ...sellRows([{ ...sell, date: '2026-04-06' }], '2026-04-10')]
+  assert.equal(evaluate(sameDay, '2026-04-10', null, { lv2: 1.5 }).size, 2)
 })
 
 test('sells: with usHistory the plan money left keeps its gain, and money sold out no longer counts', () => {

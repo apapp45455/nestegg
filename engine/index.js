@@ -61,7 +61,10 @@ export function parseLedger(text) {
 const toLine = r => [r.date, r.symbol, r.action, r.shares, r.amount, r.fee].join(',')
 // Within a day, apply buys, then dividends, then sells: otherwise a day trade's sell (even sell-before-buy) is skipped as "nothing held yet", leaving phantom shares
 const SAME_DAY = { buy: 0, dividend: 1, sell: 2 }
-const byDate = (a, b) => a.date.localeCompare(b.date) || SAME_DAY[a.action] - SAME_DAY[b.action]
+// A sell given as a fraction of the shares held (see parseSells) goes first: the holding it was counted against doesn't
+// include that day's buys yet, for example a plan debit on the same day
+const dayOrder = r => (r.held ? -1 : SAME_DAY[r.action])
+const byDate = (a, b) => a.date.localeCompare(b.date) || dayOrder(a) - dayOrder(b)
 
 export const toCsv = rows => [HEADER, ...rows.map(toLine)].join('\n') + '\n'
 
