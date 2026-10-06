@@ -23,7 +23,7 @@ writeFileSync(join(DATA, 'market.json'), JSON.stringify({
 }))
 // No network: the market sources are answered by fakes (net.gate holds the TWSE answers, net.nasdaqDown fails Nasdaq),
 // anything else outside the local fake servers is recorded in net.unexpected and fails as if offline (checked at the end)
-const net = { requests: [], unexpected: [], gate: null, nasdaqDown: false, twDate: '1151005' }
+const net = { requests: [], unexpected: [], gate: null, nasdaqDown: false, twDate: '1151005', ibkrReady: new Set(), cbcDown: false }
 const FAKE_NET = {
   'openapi.twse.com.tw/v1/exchangeReport/MI_INDEX': () => [{ 日期: net.twDate, 指數: '發行量加權股價指數', 漲跌: '+', 漲跌百分比: '1.20' }],
   'openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL': () => [{ Code: '0050', ClosingPrice: '112.00', Change: '2.0000' }],
@@ -34,7 +34,35 @@ const FAKE_NET = {
   }),
   'openapi.taifex.com.tw/v1/DailyForeignExchangeRates': () => [{ Date: '20261005', 'USD/NTD': '32.000' }],
   'api.nasdaq.com/api/quote/': () => ({ data: { tradesTable: { rows: [{ date: '10/05/2026', close: '110.00' }] } } }),
+  // Interactive Brokers: the token 'ibkr-token' works; every report answers 1019 (still generating) once, like the real one
+  'ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest': url => {
+    const q = new URL(url).searchParams
+    if (q.get('t') !== 'ibkr-token') return flexStatus('<Status>Fail</Status><ErrorCode>1015</ErrorCode><ErrorMessage>Token is invalid.</ErrorMessage>')
+    return flexStatus(`<Status>Success</Status><ReferenceCode>${q.get('fd')}-${q.get('td')}</ReferenceCode>`)
+  },
+  'ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement': url => {
+    const ref = new URL(url).searchParams.get('q')
+    if (!net.ibkrReady.has(ref)) {
+      net.ibkrReady.add(ref)
+      return flexStatus('<Status>Fail</Status><ErrorCode>1019</ErrorCode><ErrorMessage>Statement generation in progress. Please try again shortly.</ErrorMessage>')
+    }
+    const [fd, td] = ref.split('-')
+    const trades = IB_TRADES().filter(t => t.tradeDate >= fd && t.tradeDate <= td)
+      .map(t => `<Trade accountId="U1234567" currency="USD" assetCategory="STK" levelOfDetail="EXECUTION" ${Object.entries(t).map(([k, v]) => `${k}="${v}"`).join(' ')} />`)
+    return `<FlexQueryResponse queryName="NestEgg" type="AF"><FlexStatements count="1"><FlexStatement accountId="U1234567" fromDate="${fd}" toDate="${td}"><Trades>${trades.join('')}</Trades></FlexStatement></FlexStatements></FlexQueryResponse>`
+  },
+  // The central bank's rates, published up to 2026-03-31; net.cbcDown answers a maintenance page instead
+  'cpx.cbc.gov.tw/API/DataAPI/Get': () => net.cbcDown ? '<html><body>系統維護中</body></html>' : ({
+    data: { structure: { Table1: [{ data: '新台幣NTD/USD' }] }, dataSets: [['20251103', '30.000'], ['20260302', '31.000'], ['20260331', '31.500']] },
+  }),
 }
+const flexStatus = body => `<FlexStatementResponse timestamp='06 October, 2026 10:00 AM EDT'>${body}</FlexStatementResponse>`
+// Bought 10 VOO, sold 2, and a QQQ buy today, after the latest published rate
+const IB_TRADES = () => [
+  { symbol: 'VOO', tradeDate: '20251103', quantity: '10', tradePrice: '500', proceeds: '-5000', ibCommission: '-1', buySell: 'BUY' },
+  { symbol: 'VOO', tradeDate: '20260302', quantity: '-2', tradePrice: '550', proceeds: '1100', ibCommission: '0', buySell: 'SELL' },
+  { symbol: 'QQQ', tradeDate: today().replaceAll('-', ''), quantity: '1', tradePrice: '600', proceeds: '-600', ibCommission: '-1', buySell: 'BUY' },
+]
 const localFetch = globalThis.fetch
 globalThis.fetch = async (url, options) => {
   const u = String(url)
@@ -47,7 +75,8 @@ globalThis.fetch = async (url, options) => {
   net.requests.push(u)
   if (u.includes('twse') && net.gate) await net.gate
   if (u.includes('nasdaq') && net.nasdaqDown) throw new Error('Nasdaq 暫時擋掉（假的）')
-  return new Response(JSON.stringify(FAKE_NET[fake]()), { headers: { 'Content-Type': 'application/json' } })
+  const body = FAKE_NET[fake](u)
+  return new Response(typeof body === 'string' ? body : JSON.stringify(body), { headers: { 'Content-Type': typeof body === 'string' ? 'text/xml' : 'application/json' } })
 }
 // Put the fake Fubon SDK straight into the installed location (the install flow opens a file dialog; it's stubbed in its own test)
 mkdirSync(SDK, { recursive: true })
@@ -609,6 +638,36 @@ async function runAll() {
     net.nasdaqDown = false
     await page('window.plans.set([])', win())
     await page('window.petSettings.set({})', win())
+  })
+
+  await test('IB 同步：用 Flex 報表匯入美股成交，按央行成交日匯率換成台幣；匯率還沒公布的先等；不會重複', async () => {
+    const connect = token => page(`window.broker.connect('ibkr', { token: '${token}', queryId: '123456', since: '2025-10-01' })`)
+    const bad = await connect('wrong-token')
+    assert.match(bad.error ?? '', /IB 說金鑰無效.*1015/)
+    assert.equal((await page("window.broker.status('ibkr')")).ok.connected, false) // A failed connection saves nothing
+    const res = await connect('ibkr-token')
+    assert.equal(res.error, undefined, res.error)
+    assert.deepEqual([res.ok.added, res.ok.accounts], [2, 1])
+    assert.equal(ledgerLines('2025-11-03,VOO,buy,10,150000,30'), 1) // US$5,000 × 30.0, commission US$1
+    assert.equal(ledgerLines('2026-03-02,VOO,sell,2,34100,0'), 1) // US$1,100 × 31.0
+    assert.equal(ledgerLines(',QQQ,'), 0)
+    assert.match(res.ok.warnings.join('\n'), /1 筆最近的交易還等不到/)
+    // Two 365-day windows from 2025-10-01, each asked once and fetched after one "still generating"
+    const sent = net.requests.filter(u => u.includes('/SendRequest') && u.includes('t=ibkr-token'))
+    assert.deepEqual(sent.map(u => new URL(u).searchParams.get('fd')), ['20251001', '20261001'])
+    // Syncing again (60 days back) adds nothing twice
+    assert.equal((await page("window.broker.sync('ibkr')")).ok.added, 0)
+    assert.equal(ledgerLines(',VOO,'), 2)
+    // The central bank answering a maintenance page: a clear message, no IBKR request spent, and auto sync isn't paused
+    net.cbcDown = true
+    const asked = net.requests.filter(u => u.includes('/SendRequest')).length
+    try {
+      assert.match((await page("window.broker.sync('ibkr')")).error ?? '', /中央銀行的匯率下載失敗/)
+    } finally {
+      net.cbcDown = false
+    }
+    assert.equal(net.requests.filter(u => u.includes('/SendRequest')).length, asked)
+    assert.equal((await page("window.broker.status('ibkr')")).ok.paused, undefined)
   })
 
   await test('畫面：寵物真的有畫出來', async () => {
