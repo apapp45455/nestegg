@@ -4,10 +4,11 @@
 // daily closes downloaded on its own, which tells Nasdaq the symbol (never amounts or who is asking).
 import { app } from 'electron'
 import { existsSync } from 'node:fs'
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { addDays } from '../engine/index.js'
 import { parseHistory, parseMarket, parseUs } from '../sync/market.js'
+import { writeAtomic } from './files.js'
 
 const CACHE = join(app.getPath('userData'), 'market.json')
 const MAX_AGE = 6 * 3_600_000 // Closing prices change once a day, so refreshing every 6 hours is enough
@@ -21,7 +22,7 @@ const URLS = {
 }
 const isTw = symbol => /^\d/.test(symbol) // Taiwan codes start with a digit; US tickers never do
 let market = null
-let wants, onUpdate, updating = null
+let wants, onUpdate, updating = null, again = false
 
 export const getMarket = () => market
 
@@ -42,9 +43,11 @@ async function needs() {
   return { symbols: new Set(records.map(r => r.symbol)), us: records.some(r => !isTw(r.symbol)), history }
 }
 
-// A fresh cache still needs a download when the holdings now want something it lacks (a first US ticker, a new plan)
+// A fresh cache still needs a download when the holdings now want something it lacks (a first US ticker, a new plan).
+// After the US sources failed, wait for the next regular refresh: otherwise every save would download everything again
 const covers = (m, need) =>
-  (!need.us || m.us) && Object.entries(need.history).every(([symbol, from]) => m.history?.[symbol]?.from <= from)
+  Date.now() - (m.usFailedAt ?? 0) < MAX_AGE ||
+  ((!need.us || m.us) && Object.entries(need.history).every(([symbol, from]) => m.history?.[symbol]?.from <= from))
 
 // ponytail: one request per symbol, one after another; fine for the handful of symbols a person buys every month
 async function fetchHistory(need, us) {
@@ -78,14 +81,19 @@ async function update() {
     const tpex = [...need.symbols].some(s => isTw(s) && !listed.has(s)) ? await getJson(URLS.tpex) : []
     const next = { ...parseMarket(index, twse, tpex), fetchedAt: Date.now() }
     if (need.us) {
-      const [stocks, etfs, fx] = await Promise.all([getJson(URLS.stocks), getJson(URLS.etfs), getJson(URLS.fx)])
-      // Which tickers are ETFs: the history lookup has to say so
-      next.us = { ...parseUs(stocks.data.rows, etfs.data, fx), etfs: etfs.data.data.rows.map(r => r.symbol) }
-      if (Object.keys(need.history).length) next.history = await fetchHistory(need.history, next.us)
+      // The US sources are unofficial endpoints: when they fail, keep the last US data and still save the Taiwan prices
+      try {
+        const [stocks, etfs, fx] = await Promise.all([getJson(URLS.stocks), getJson(URLS.etfs), getJson(URLS.fx)])
+        // Which tickers are ETFs: the history lookup has to say so
+        next.us = { ...parseUs(stocks.data.rows, etfs.data, fx), etfs: etfs.data.data.rows.map(r => r.symbol) }
+        if (Object.keys(need.history).length) next.history = await fetchHistory(need.history, next.us)
+      } catch (e) {
+        console.error('美股行情更新失敗，沿用上次的資料：', e.message)
+        Object.assign(next, { us: market?.us, history: market?.history, usFailedAt: Date.now() })
+      }
     }
     market = next
-    await writeFile(`${CACHE}.tmp`, JSON.stringify(market))
-    await rename(`${CACHE}.tmp`, CACHE)
+    await writeAtomic(CACHE, JSON.stringify(market))
     onUpdate()
   } catch (e) {
     console.error('行情更新失敗，沿用上次的資料：', e.message) // Offline, the weather stays at the last known state
@@ -93,9 +101,19 @@ async function update() {
 }
 
 // Called after the ledger, plans or settings change, so a new US ticker or turning on usHistory doesn't wait for the
-// next hourly check; overlapping calls share one download
+// next hourly check. A call during a download runs once more afterwards: that download read the holdings before this change
 export function updateMarket() {
-  updating ??= update().finally(() => { updating = null })
+  if (updating) {
+    again = true
+    return updating
+  }
+  updating = update().finally(() => {
+    updating = null
+    if (again) {
+      again = false
+      updateMarket()
+    }
+  })
   return updating
 }
 

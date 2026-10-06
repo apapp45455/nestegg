@@ -524,7 +524,7 @@ async function runAll() {
     // Turn on per-ticker history in the settings window: the plan bought at 200 is now worth 110, so the fur dulls
     openSettings()
     const settings = () => windowAt('/settings.html')
-    await until('document.querySelector("[name=usHistory]") && document.querySelector("[name=mood]").value', v => v === '1', '設定載入', 15_000, settings)
+    await until('document.querySelector("[name=mood]")?.value', v => v, '設定載入', 15_000, settings)
     assert.equal(await page('document.querySelector("[name=usHistory]").checked', settings()), false)
     await page('document.querySelector("[name=usHistory]").click(); 0', settings())
     await until('state.fur', v => v === 'dull', '定期定額算進毛色')
