@@ -174,11 +174,13 @@ function status() {
   if (state.stage === 'none') return '還沒有交易紀錄\n按右鍵 → 匯入 CSV'
   const bowls = '🍚'.repeat(state.satiety) + '・'.repeat(3 - state.satiety)
   const lines = [`${STAGE_NAMES[state.stage]} · 第 ${state.age} 天 · Lv${state.size}`, `飽足 ${bowls}`]
-  if (state.mood && state.stage !== 'egg') lines.push(`心情${LABELS.mood[state.mood]} · 毛色${LABELS.fur[state.fur]}`)
+  // Without known buy prices (recurring plans with usHistory off) there's a mood but no fur
+  const looks = [state.mood && `心情${LABELS.mood[state.mood]}`, state.fur && `毛色${LABELS.fur[state.fur]}`].filter(Boolean)
+  if (looks.length && state.stage !== 'egg') lines.push(looks.join(' · '))
   if (state.weather) {
     const d = state.marketDate
     const pct = `${state.indexChange >= 0 ? '+' : ''}${state.indexChange.toFixed(2)}%`
-    lines.push(`${LABELS.weather[state.weather]} · 加權 ${pct} · ${+d.slice(5, 7)}/${+d.slice(8)}`)
+    lines.push(`${LABELS.weather[state.weather]} · ${state.indexName} ${pct} · ${+d.slice(5, 7)}/${+d.slice(8)}`)
   }
   return lines.join('\n')
 }

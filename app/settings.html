@@ -10,6 +10,7 @@
     legend { font-weight: 700; padding: 0 4px; }
     .inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 400; }
     .inline input { width: 5.5em; }
+    .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
     .levels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   </style>
 </head>
@@ -35,10 +36,15 @@
     </fieldset>
     <fieldset>
       <legend>行情有多敏感</legend>
-      <label class="inline">加權指數單日跌 <input name="typhoon" type="number" inputmode="decimal"> % 以上是颱風</label>
+      <label class="inline">大盤單日跌 <input name="typhoon" type="number" inputmode="decimal"> % 以上是颱風</label>
       <label class="inline">持股單日漲跌超過 ± <input name="mood" type="number" inputmode="decimal"> % 會開心或難過</label>
       <label class="inline">持股市值比成本高或低 <input name="fur" type="number" inputmode="decimal"> % 以上，毛色發亮或黯淡</label>
-      <p class="note">指數沒跌是晴天，跌得不多是下雨。行情只影響天氣、心情、毛色，不影響成長與健康。</p>
+      <p class="note">大盤看你持股本金比較多的市場：台股看加權指數，美股看 S&amp;P 500。指數沒跌是晴天，跌得不多是下雨。行情只影響天氣、心情、毛色，不影響成長與健康。</p>
+    </fieldset>
+    <fieldset>
+      <legend>美股</legend>
+      <label class="check"><input name="usHistory" type="checkbox"> 逐檔查美股歷史價格，讓定期定額也算進毛色</label>
+      <p class="note">美股行情平常是下載 Nasdaq 整張公開表，在電腦裡比對，不會透露你持有哪些股票。定期定額只記台幣金額、沒有股數，要知道每次扣款買到多少，得查每個扣款日的收盤價，這只能一檔一檔查。打開這個選項後，Nasdaq 會知道有人查了這些代號，但不會知道金額或你是誰。關掉時，定期定額照樣影響天氣和心情，只是不算毛色。</p>
     </fieldset>
     <fieldset>
       <legend>多少本金長大一級</legend>

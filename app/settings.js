@@ -7,7 +7,8 @@ function render(values) {
     const el = form.elements[key]
     // Still show a period that isn't in the menu (for example, 10 days set by hand in the file)
     if (el.tagName === 'SELECT' && ![...el.options].some(o => +o.value === v)) el.add(new Option(`每 ${v} 天`, v))
-    el.value = v
+    if (el.type === 'checkbox') el.checked = v
+    else el.value = v
   }
 }
 
@@ -34,14 +35,16 @@ form.addEventListener('change', () => {
   // Each size threshold must be higher than the last (the engine checks too; blocking here tells the user which field to fix)
   levels.forEach((el, i) => el.setCustomValidity(i && +el.value <= +levels[i - 1].value ? `要比 Lv${i + 1} 的 ${levels[i - 1].value} 萬元高` : ''))
   if (!form.checkValidity()) return form.reportValidity()
-  save(Object.fromEntries([...new FormData(form)].map(([key, v]) => [key, v === '' ? undefined : Number(v)])))
+  const values = Object.fromEntries([...new FormData(form)].filter(([key]) => form.elements[key].type !== 'checkbox').map(([key, v]) => [key, v === '' ? undefined : Number(v)]))
+  for (const el of form.querySelectorAll('input[type=checkbox]')) values[el.name] = el.checked
+  save(values)
 })
 document.getElementById('reset').onclick = () => save({})
 
 window.petSettings.get().then(({ values, limits }) => {
   for (const [key, { min, max, step }] of Object.entries(limits)) {
     const el = form.elements[key]
-    if (el.tagName === 'INPUT') Object.assign(el, { min, max, step, required: true })
+    if (el.tagName === 'INPUT' && el.type !== 'checkbox') Object.assign(el, { min, max, step, required: true })
   }
   render(values)
 })

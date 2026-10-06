@@ -14,10 +14,21 @@ const DATA = mkdtempSync(join(tmpdir(), 'nestegg-e2e-'))
 const SDK = join(DATA, 'fubon', 'package')
 app.setPath('userData', DATA)
 
-// Market cache: freshly fetched, so the app stays offline; 0050 closed at 112, up 2 (110 the day before)
+// Market cache: freshly fetched, so the app stays offline; 0050 closed at 112, up 2 (110 the day before).
+// The US part covers the plans on VOO: down 0.5% on the day, with daily closes going back far enough for any plan
 writeFileSync(join(DATA, 'market.json'), JSON.stringify({
   date: '2026-10-02', indexChange: 1.2, prices: { '0050': { close: 112, change: 2 } }, fetchedAt: Date.now(),
+  us: { date: '2026-10-02', indexChange: -0.5, fx: 32, prices: { VOO: { close: 110, change: -0.55 } }, etfs: ['VOO'] },
+  history: { VOO: { from: '2000-01-03', closes: [['2000-01-03', 200]] } },
 }))
+// No network: anything that isn't one of the local fake servers is recorded and fails as if offline (checked at the end)
+const outside = []
+const localFetch = globalThis.fetch
+globalThis.fetch = (url, options) => {
+  if (/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(String(url))) return localFetch(url, options)
+  outside.push(String(url))
+  return Promise.reject(new Error('e2e 不連網'))
+}
 // Put the fake Fubon SDK straight into the installed location (the install flow opens a file dialog; it's stubbed in its own test)
 mkdirSync(SDK, { recursive: true })
 cpSync(join(import.meta.dirname, 'fake-fubon-sdk'), SDK, { recursive: true })
@@ -500,6 +511,32 @@ async function runAll() {
     plans().close()
   })
 
+  await test('美股：天氣跟著本金多的市場看 S&P 500；打開逐檔查價後，定期定額也算進毛色', async () => {
+    const start = new Date(Date.parse(today()) - 730 * 864e5).toISOString().slice(0, 10)
+    await page(`window.plans.set([{ symbol: 'VOO', amount: 30000, day: 1, start: '${start}' }]); 0`, win())
+    // US principal is now larger: the S&P 500 (down 0.5%) brings rain, and the plan money's -0.5% keeps the mood calm
+    await until('state.indexName', v => v === 'S&P 500', '天氣改看 S&P 500')
+    assert.deepEqual(await page('[state.weather, state.mood]'), ['rain', 'calm'])
+    assert.match(await page('status()'), /🌧️ 雨 · S&P 500 -0\.50% · 10\/2$/)
+    // The plan's gain is unknown with usHistory off: the fur comes from the Fubon 0050 shares alone
+    const furOff = await page('state.fur')
+    assert.notEqual(furOff, 'dull')
+    // Turn on per-ticker history in the settings window: the plan bought at 200 is now worth 110, so the fur dulls
+    openSettings()
+    const settings = () => windowAt('/settings.html')
+    await until('document.querySelector("[name=usHistory]") && document.querySelector("[name=mood]").value', v => v === '1', '設定載入', 15_000, settings)
+    assert.equal(await page('document.querySelector("[name=usHistory]").checked', settings()), false)
+    await page('document.querySelector("[name=usHistory]").click(); 0', settings())
+    await until('state.fur', v => v === 'dull', '定期定額算進毛色')
+    assert.deepEqual(JSON.parse(readFileSync(join(DATA, 'settings.json'), 'utf8')), { usHistory: true })
+    assert.match(await page('status()'), /毛色黯淡/)
+    await page('document.querySelector("[name=usHistory]").click(); 0', settings())
+    await until('state.fur', v => v === furOff, '關掉後毛色不再算定期定額')
+    settings().close()
+    await page('window.plans.set([]); 0', win())
+    await until('state.indexName', v => v === '加權', '沒有美股後改回加權')
+  })
+
   await test('畫面：寵物真的有畫出來', async () => {
     const painted = await page(`(() => {
       const d = pet.getContext('2d').getImageData(0, 0, 16, 16).data
@@ -606,6 +643,10 @@ async function runAll() {
 
   await test('整個過程主程序沒有未處理的錯誤', () => {
     assert.deepEqual(crashes, [])
+  })
+
+  await test('整個過程沒有連到外網（行情都用預先放好的資料）', () => {
+    assert.deepEqual(outside, [])
   })
 
   const failed = results.filter(ok => !ok).length

@@ -94,6 +94,35 @@ test('market: 漲跌不影響成長與健康；沒行情或查不到價格時是
   assert.equal(evaluate([], '2026-10-03', crash).weather, 'typhoon') // Weather shows even before there's an egg
 })
 
+test('market: US holdings use the Nasdaq prices in NT$; the weather follows the market holding more principal', () => {
+  const us = { date: '2026-10-02', indexChange: -3.5, fx: 32, prices: { VOO: { close: 110, change: 2.2 } } } // VOO +2.04% on the day
+  const market = { date: '2026-10-02', indexChange: 0.5, prices: { '0050': { close: 100, change: 0 } }, us }
+  const voo = buy('2026-01-02', 32_000, 10, 'VOO') // US$100 a share at 32: now 10 × 110 × 32 = NT$35,200, +10%
+  const pet = evaluate([voo], '2026-10-03', market)
+  assert.deepEqual([pet.weather, pet.indexName, pet.indexChange, pet.marketDate, pet.mood, pet.fur], ['typhoon', 'S&P 500', -3.5, '2026-10-02', 'happy', 'shiny'])
+  const both = evaluate([voo, buy('2026-01-02', 40_000, 400)], '2026-10-03', market) // More principal in Taiwan
+  assert.deepEqual([both.weather, both.indexName], ['sunny', '加權'])
+  assert.equal(evaluate([voo], '2026-10-03', { ...market, us: undefined }).indexName, '加權') // No US data yet
+})
+
+test('market: recurring plan money is valued from its debit-day closes only with usHistory on', () => {
+  const plan = { symbol: 'VOO', amount: 10_000, day: 6, start: '2026-07-06', end: null }
+  const rows = planRows([plan], '2026-10-07') // 7/6, 8/6, 9/6 (a Sunday: priced at Tuesday's close) and 10/6 (not priced yet)
+  const closes = [['2026-07-06', 100], ['2026-08-06', 100], ['2026-09-08', 100], ['2026-10-02', 110]]
+  const market = {
+    date: '2026-10-02', indexChange: 0, prices: {},
+    us: { date: '2026-10-02', indexChange: 0.5, fx: 32, prices: { VOO: { close: 110, change: 2.2 } } },
+    history: { VOO: { from: '2026-07-06', closes } },
+  }
+  // 30,000 bought 300 units now worth 33,000, +10%; the 10/6 buy at the latest close adds 10,000 at cost: +7.5%
+  const on = evaluate(rows, '2026-10-07', market, { usHistory: true })
+  assert.deepEqual([on.mood, on.fur, on.indexName], ['happy', 'shiny', 'S&P 500'])
+  assert.equal(evaluate(rows, '2026-10-07', market, { usHistory: true, fur: 8 }).fur, 'normal')
+  // Off: the money still moves the mood with the day's change, but its gain is unknown, so the fur stays neutral
+  const off = evaluate(rows, '2026-10-07', market)
+  assert.deepEqual([off.mood, off.fur], ['happy', null])
+})
+
 test('settings: 週投的人照週算飽足；敏感度調高後小漲跌不影響心情', () => {
   const l = [buy('2026-01-01', 10_000, 100)]
   assert.equal(evaluate(l, '2026-01-20').satiety, 3) // Default monthly period: still full after 19 days
@@ -106,11 +135,12 @@ test('settings: 週投的人照週算飽足；敏感度調高後小漲跌不影�
 
 test('settings: 手改壞的設定（字串、超出範圍、天數有小數）每一項各自回到預設', () => {
   const defaults = parseSettings()
-  assert.deepEqual(defaults, { period: 31, grace: 7, typhoon: 3, mood: 1, fur: 5, lv2: 3, lv3: 10, lv4: 30, lv5: 100 })
+  assert.deepEqual(defaults, { period: 31, grace: 7, typhoon: 3, mood: 1, fur: 5, lv2: 3, lv3: 10, lv4: 30, lv5: 100, usHistory: false })
   assert.deepEqual(parseSettings({ period: '7', grace: -1, typhoon: 99, mood: 2, fur: null }), { ...defaults, mood: 2 })
   assert.equal(parseSettings({ period: 7.5 }).period, 31)
   assert.equal(parseSettings({ mood: 0.5 }).mood, 0.5) // Percentages can have decimals
   assert.deepEqual(parseSettings('壞掉的檔案'), defaults)
+  assert.deepEqual([parseSettings({ usHistory: true }).usHistory, parseSettings({ usHistory: 'yes' }).usHistory], [true, false])
 })
 
 test('settings: 體型門檻可以調（萬元）；沒有一級比一級高就四個一起回到預設', () => {
