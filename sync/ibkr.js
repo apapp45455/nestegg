@@ -50,13 +50,14 @@ const isoDate = s => {
   const m = d.match(/^(\d{4})-?(\d{2})-?(\d{2})$/)
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null
 }
-const number = s => Math.abs(Number.parseFloat(String(s ?? '').replace(/,/g, ''))) || 0
+const signed = s => Number.parseFloat(String(s ?? '').replace(/,/g, '')) || 0
+const number = s => Math.abs(signed(s))
 
 // Executions of US-dollar stocks and ETFs → ledger rows in NT$, converted with the central bank's rate of the trade date
 // (the last one published on or before it). A trade newer than the latest published rate waits for the next sync, so its
 // amount never changes once written (a changed amount would look like a second trade).
 export function toRows(trades, rates, from, to) {
-  const rows = [], skipped = { currency: new Set(), category: new Set(), date: 0 }
+  const rows = [], skipped = { currency: new Set(), category: new Set(), date: 0, incomplete: 0 }
   let waiting = 0
   const latest = rates.at(-1)?.[0]
   const rateOn = date => {
@@ -94,7 +95,7 @@ export function toRows(trades, rates, from, to) {
     if (!latest || date > latest) { waiting++; continue }
     const rate = rateOn(date)
     const shares = number(t.quantity)
-    if (!rate || !shares) continue
+    if (!rate || !shares) { skipped.incomplete++; continue } // Before the central bank's first rate, or no quantity in the report
     const usd = number(t.proceeds) || shares * number(t.tradePrice)
     rows.push({
       date,
@@ -102,7 +103,8 @@ export function toRows(trades, rates, from, to) {
       action: t.buySell === 'BUY' ? 'buy' : 'sell',
       shares,
       amount: Math.round(usd * rate),
-      fee: Math.round((number(t.ibCommission) + number(t.taxes)) * rate),
+      // IBKR writes costs as negative numbers; a rebate or tax refund is positive and lowers the fee, never below 0
+      fee: Math.max(0, Math.round(-(signed(t.ibCommission) + signed(t.taxes)) * rate)),
     })
   }
   const warnings = []
@@ -114,6 +116,7 @@ export function toRows(trades, rates, from, to) {
     const list = cancels.map(t => `${isoDate(t.origTradeDate || t.tradeDate)} ${t.symbol}`).join('、')
     warnings.push(`IB 取消了 ${cancels.length} 筆成交（${list}），這次不記；如果之前的同步已經記進帳本，請手動刪掉那一筆`)
   }
+  if (skipped.incomplete) warnings.push(`${skipped.incomplete} 筆交易沒有股數，或早於中央銀行的匯率資料，沒有記進帳本`)
   if (skipped.date) warnings.push(`有 ${skipped.date} 筆交易的日期看不懂，請把 Flex Query 的日期格式設成 yyyyMMdd`)
   return { rows, warnings }
 }

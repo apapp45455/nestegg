@@ -29,6 +29,7 @@ ${trade({ symbol: 'VOO', tradeID: '901', tradeDate: '20250917', quantity: '1', t
 ${trade({ symbol: 'VOO', tradeID: '902', origTradeID: '901', tradeDate: '20250918', origTradeDate: '20250917', quantity: '-1', tradePrice: '500', proceeds: '500', buySell: 'BUY (Ca.)' })}
 ${trade({ symbol: '700', currency: 'HKD', tradeDate: '20250917', quantity: '100', proceeds: '-50000', buySell: 'BUY' })}
 ${trade({ symbol: 'QQQ', tradeDate: '20250923', quantity: '1', proceeds: '-600', buySell: 'BUY' })}
+${trade({ symbol: 'SPY', tradeDate: '20250905', quantity: '1', proceeds: '-650', buySell: 'BUY' })}
 </Trades>
 </FlexStatement>
 </FlexStatements>
@@ -50,7 +51,7 @@ test('parseFlexStatus: success gives the reference code, failure the error code;
 
 test('parseTrades: every Trade with its attributes, entities decoded; a CSV report is refused', () => {
   const trades = parseTrades(STATEMENT)
-  assert.equal(trades.length, 9)
+  assert.equal(trades.length, 10)
   assert.equal(trades[0].description, 'VANGUARD S&P 500 ETF')
   assert.throws(() => parseTrades('ClientAccountID,Symbol\nU1,VOO'), /XML/)
 })
@@ -68,10 +69,11 @@ test('toRows: US-dollar stock executions in NT$ at the rate of the trade date; t
     { date: '2025-09-20', symbol: 'VOO', action: 'sell', shares: 3, amount: 47_424, fee: 31 }, // A Saturday: Friday's 30.4, once Monday's is out
   ])
   assert.deepEqual(parseLedger(toCsv(rows)), rows) // Valid ledger rows
-  assert.equal(warnings.length, 4)
+  assert.equal(warnings.length, 5)
   assert.match(warnings.join('\n'), /1 筆最近的交易還等不到/) // QQQ on 09-23, after the latest published rate
   assert.match(warnings.join('\n'), /非美元的交易（HKD）/)
   assert.match(warnings.join('\n'), /股票與 ETF 以外的成交（OPT）/)
+  assert.match(warnings.join('\n'), /1 筆交易沒有股數，或早於中央銀行的匯率資料/) // SPY on 09-05, before the first rate
   assert.match(warnings.join('\n'), /IB 取消了 1 筆成交（2025-09-17 VOO），這次不記/) // Neither the cancelled buy nor its cancellation
   // Outside the requested dates: left to the sync that asks for them
   assert.deepEqual(toRows(parseTrades(STATEMENT), parseCbcRates(CBC), '2025-09-16', '2025-09-16').rows.map(r => r.symbol), ['BRK.B'])
@@ -87,4 +89,12 @@ test('toRows: a cancellation without origTradeID still takes out the original wi
   const buy = { assetCategory: 'STK', currency: 'USD', symbol: 'VOO', tradeDate: '20250915', quantity: '2', tradePrice: '500', proceeds: '-1000', buySell: 'BUY' }
   const cancel = { ...buy, quantity: '-2', proceeds: '1000', buySell: 'BUY (Ca.)' }
   assert.deepEqual(toRows([buy, buy, cancel], rates, '2025-09-01', '2025-09-30').rows.map(r => r.shares), [2]) // One of two identical buys
+})
+
+test('toRows: commission and taxes keep their sign: a rebate lowers the fee, which never goes below 0', () => {
+  const rates = [['2025-09-15', 30]]
+  const buy = { assetCategory: 'STK', currency: 'USD', symbol: 'VOO', tradeDate: '20250915', quantity: '1', proceeds: '-500', buySell: 'BUY' }
+  const fee = (ibCommission, taxes) => toRows([{ ...buy, ibCommission, taxes }], rates, '2025-09-01', '2025-09-30').rows[0].fee
+  assert.equal(fee('-1', '0.2'), 24) // US$1 commission less a US$0.20 tax refund
+  assert.equal(fee('0.35', '-0.05'), 0) // A rebate larger than the taxes
 })
