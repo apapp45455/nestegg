@@ -24,6 +24,7 @@ cpSync(join(import.meta.dirname, 'fake-fubon-sdk'), SDK, { recursive: true })
 const CERT = join(DATA, 'test-cert.pfx')
 writeFileSync(CERT, 'not a real certificate')
 const { HOLDINGS } = createRequire(import.meta.url)(join(SDK, 'trade.js'))
+const { dateWindows } = await import('../sync/fubon.js')
 const logins = () => readFileSync(join(SDK, 'logins.txt'), 'utf8').trim().split('\n')
 // Local date, like the app's today()
 const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10)
@@ -131,8 +132,11 @@ async function runAll() {
     assert.equal(status.ok.sdk, '2.4.0-fake')
     const badDate = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', certPath: ${JSON.stringify(CERT)}, since: '2025-02-31' })`)
     assert.match(badDate.error, /起始日期/) // A nonexistent date gets a clear message, not a cryptic RangeError
+    // Fubon throttles one query (業務系統流量控管): NestEgg waits, retries and still imports everything
+    writeFileSync(join(SDK, 'throttle-once'), dateWindows('2025-10-01', today()).at(-1)[0])
     const res = await page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', historyKey: 'history-key', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
     assert.equal(res.error, undefined, res.error)
+    assert.equal(existsSync(join(SDK, 'throttle-once')), false)
     assert.equal(res.ok.added, 11) // 12 trades; the margin one doesn't count, and the holdings match the history, so reconciling adds nothing
     assert.equal(res.ok.accounts, 1) // The futures account isn't queried
     assert.equal(ledgerLines(), 11)

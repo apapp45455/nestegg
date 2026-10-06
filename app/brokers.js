@@ -69,10 +69,10 @@ async function installSdk(b, file) {
 }
 
 // Run the broker SDK in a separate utility process (most calls are synchronous and would freeze the pet in the main process)
-function runWorker(file, payload, cwd) {
+function runWorker(file, payload, cwd, timeout = 120_000) {
   return new Promise((resolve, reject) => {
     const child = utilityProcess.fork(file, [], { cwd, serviceName: 'NestEgg 券商同步' }) // The SDK writes logs to cwd
-    const timer = setTimeout(() => { child.kill(); reject(new Error('券商連線逾時，請稍後再試')) }, 120_000)
+    const timer = setTimeout(() => { child.kill(); reject(new Error('券商連線逾時，請稍後再試')) }, timeout)
     child.once('spawn', () => child.postMessage(payload))
     child.once('message', msg => { clearTimeout(timer); child.kill(); resolve(msg) })
     child.once('exit', code => { clearTimeout(timer); reject(new Error(`同步程序意外結束（代碼 ${code}）`)) })
@@ -97,7 +97,7 @@ async function sync(b, creds, from, manual = false, connectOnly) {
   const secrets = [...Object.values(creds), ...Object.values(connectOnly ?? {})]
   const { rows: fresh, accounts, warnings, skipped = [] } = await b.fetch({
     creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b), previous: owned, connectOnly, manual,
-    runWorker: (file, payload) => runWorker(file, payload, home(b)),
+    runWorker: (file, payload, timeout) => runWorker(file, payload, home(b), timeout),
   }).catch(e => {
     // The stack also carries the original message (failed auto syncs console.error the whole error); rethrow non-Errors untouched so masking never throws a new error
     if (e instanceof Error) Object.assign(e, { message: redact(e.message, secrets), stack: e.stack && redact(e.stack, secrets) })

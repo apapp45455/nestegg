@@ -2,7 +2,7 @@
 // Tests can put files in this folder: fail-login simulates a login failure, hold-login holds login (simulating a sync in progress), fail-logout makes logout throw, and fail-query makes queries throw (simulating a dropped connection).
 // Permissions follow the API key's name, like the real 證券下單 / 證券業務 checkboxes: only keys containing "history" may query
 // the trade history, and keys containing "no-accounting" may not query holdings. positions.json overrides the holdings,
-// and every login's key is appended to logins.txt.
+// and every login's key is appended to logins.txt. throttle-once makes one query answer 業務系統流量控管.
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -23,6 +23,17 @@ const HOLDINGS = [
   { stockNo: '0050', orderType: 'Margin', todayQty: 1000, costPrice: 70 },
 ]
 const DENIED = { isSuccess: false, message: '此 API KEY 未授權該功能' } // what the real API answers
+// throttle-once: one query answers 業務系統流量控管, like the real API does when queried too quickly.
+// The file may name the window's start date (YYYYMMDD) to throttle; empty means the next query
+const throttled = from => {
+  const file = path.join(__dirname, 'throttle-once')
+  if (!fs.existsSync(file)) return false
+  const at = fs.readFileSync(file, 'utf8').trim()
+  if (at && at !== from) return false
+  fs.rmSync(file)
+  return true
+}
+const THROTTLED = { isSuccess: false, message: '業務系統流量控管' }
 
 class CoreSdk {
   constructor(version) { this.version = version }
@@ -49,6 +60,7 @@ class CoreSdk {
       filledHistory: (_account, from, to) => {
         if (fs.existsSync(path.join(__dirname, 'fail-query'))) throw new Error('連線中斷（假的）')
         if (!this.apiKey.includes('history')) return DENIED
+        if (throttled(from)) return THROTTLED
         return { isSuccess: true, data: FILLS.filter(f => key(f.date) >= from && key(f.date) <= to) }
       },
     }

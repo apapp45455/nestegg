@@ -51,17 +51,20 @@ export default {
 
   // Every SDK call is synchronous (construction alone takes a second), so it runs in a separate utility process to keep the pet responsive
   async fetch({ creds, from, to, sdkDir, runWorker, previous, connectOnly, manual }) {
-    const run = async (apiKey, payload) => {
-      const res = await runWorker(WORKER, { sdkDir, ...creds, apiKey, ...payload })
+    const run = async (apiKey, payload, timeout) => {
+      const res = await runWorker(WORKER, { sdkDir, ...creds, apiKey, ...payload }, timeout)
       if (/連線測試成功/.test(res.error ?? '')) throw new Error('富邦回覆連線測試成功，API 權限會在簽署隔天 9:00 前開通，到時候再按一次「連線並同步」。')
       if (res.loginFailed) throw needsUser(res.error) // Login failed: pause auto sync so the account doesn't get locked
       if (res.error) throw new Error(res.error)
+      if (res.throttled) throw new Error('富邦限制了查詢次數（業務系統流量控管），這次先不更新。請過幾分鐘再試')
       return res
     }
 
     let owned = previous, warnings = []
     if (connectOnly?.historyKey) {
-      const res = await run(connectOnly.historyKey, { history: dateWindows(from, to) }).catch(e => {
+      const windows = dateWindows(from, to)
+      // Up to 30 days per query: allow time for each window, plus backing off if Fubon throttles
+      const res = await run(connectOnly.historyKey, { history: windows }, 120_000 + windows.length * 5_000).catch(e => {
         throw Object.assign(e, { message: `歷史匯入用的 API Key：${e.message}` })
       })
       if (res.unauthorized) throw new Error('歷史匯入用的 API Key 沒有「證券下單」權限，查不到過去的成交紀錄。請確認這把金鑰有勾「證券下單」，或把這一欄留空，只同步之後的變化')
