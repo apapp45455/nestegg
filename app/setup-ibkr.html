@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>連接 Interactive Brokers</title>
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body data-broker="ibkr">
+<main>
+  <a class="back" href="setup.html">← 選擇其他券商</a>
+  <header>
+    <h1>連接 Interactive Brokers（盈透）</h1>
+    <p>透過 IB 官方的 Flex Web Service 下載你的成交紀錄。這個服務<strong>只能下載報表</strong>，金鑰本身沒有下單能力，NestEgg 程式裡也沒有任何下單功能。</p>
+  </header>
+
+  <ol class="steps">
+    <li>
+      <h2>準備 IB 帳戶</h2>
+      <p>登入 IB 的 <a href="https://www.interactivebrokers.com/portal" target="_blank">Client Portal</a>。下面的選單名稱以英文介面為準。</p>
+    </li>
+
+    <li>
+      <h2>建立 Activity Flex Query</h2>
+      <p>到 <strong>Performance &amp; Reports → Flex Queries</strong>，在「Activity Flex Query」旁按「+」建立一個新的查詢：</p>
+      <ul>
+        <li>Query Name：隨意，例如 <code>NestEgg</code></li>
+        <li>Sections：只勾 <strong>Trades</strong>。Options 選 <strong>Executions</strong>，欄位按「Select All」</li>
+        <li>Delivery Configuration：Format 選 <strong>XML</strong>。Period 隨意，NestEgg 會自己指定日期</li>
+        <li>General Configuration：Date Format 保留預設的 <strong>yyyyMMdd</strong></li>
+      </ul>
+      <p>存檔後，列表上這個查詢旁邊的數字就是 <strong>Query ID</strong>。</p>
+    </li>
+
+    <li>
+      <h2>啟用 Flex Web Service、產生金鑰</h2>
+      <p>同一頁按 <strong>Flex Web Service Configuration</strong>：</p>
+      <ul>
+        <li>勾選啟用（Flex Web Service Status）並存檔</li>
+        <li>有效期限（Should Expire After）選久一點，最長一年；過期後要回來產生新的金鑰</li>
+        <li>IP 限制先留空：家裡網路的 IP 常會變動，設了之後 IP 一變就連不上</li>
+        <li>按 <strong>Generate New Token</strong>，把產生的金鑰複製下來</li>
+      </ul>
+      <p class="note">這把金鑰只能下載 Flex 報表，不能查即時資料、也不能下單。</p>
+    </li>
+
+    <li id="step-connect">
+      <h2>連線並同步</h2>
+      <form id="connect">
+        <label>Flex Web Service 金鑰（Token）
+          <input name="token" type="password" autocomplete="off" required>
+        </label>
+        <label>Query ID
+          <input name="queryId" inputmode="numeric" autocomplete="off" required>
+        </label>
+        <label>從哪一天開始匯入成交紀錄
+          <input name="since" type="date" required>
+        </label>
+        <div><button type="submit" class="primary">連線並同步</button></div>
+        <p class="note">IB 一次最多查一年，又有查詢次數限制，匯入好幾年的紀錄要等一兩分鐘。金鑰與 Query ID 會用系統鑰匙圈加密，只存在這台電腦，用來每天自動同步一次。</p>
+      </form>
+
+      <div id="connected" hidden>
+        <p id="connected-info"></p>
+        <p id="paused" class="warn" hidden></p>
+        <div class="row">
+          <button id="sync" type="button" class="primary">立即同步</button>
+          <button id="disconnect" type="button">清除儲存的金鑰</button>
+        </div>
+      </div>
+      <p id="result" role="status"></p>
+    </li>
+  </ol>
+
+  <footer class="note">
+    <p>只記美元計價的股票與 ETF 的成交；選擇權、期貨、外匯與其他幣別的交易會略過，同步完成時會告訴你略過了什麼。美元金額用中央銀行公布的成交日匯率換成台幣，央行最晚約一週後才公布，所以最近幾天的交易會晚幾天出現。</p>
+    <p>股票分割、從其他券商轉入的持股不是成交紀錄，不會記進帳本。這個串接是照 IB 公開的文件寫的，還沒用真實帳戶驗證過；同步結果怪怪的請回報。</p>
+  </footer>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>

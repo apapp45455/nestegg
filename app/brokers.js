@@ -8,10 +8,11 @@ import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import { addDays, isDate, removeRows } from '../engine/index.js'
 import fubon from './brokers/fubon.js'
+import ibkr from './brokers/ibkr.js'
 import sinopac from './brokers/sinopac.js'
 import { writeAtomic } from './files.js'
 
-const BROKERS = Object.fromEntries([fubon, sinopac].map(b => [b.id, b]))
+const BROKERS = Object.fromEntries([fubon, sinopac, ibkr].map(b => [b.id, b]))
 const run = promisify(execFile)
 // On Windows use the built-in bsdtar: Git for Windows' GNU tar, if found first on PATH, treats C:\ as a remote host
 const TAR = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar'
@@ -142,7 +143,8 @@ export const syncSaved = (id, manual = false) => exclusive(id, 'sync', async () 
   const b = broker(id)
   const cfg = await readConfig(b)
   if (!cfg) throw new Error(`尚未連接${b.name}`)
-  const from = addDays(cfg.lastSync, -7) // Overlap by a week to catch trades settled after the last sync (duplicates are merged)
+  // Overlap by a week (or what the broker asks for) to catch trades settled after the last sync (duplicates are merged)
+  const from = addDays(cfg.lastSync, -(b.overlap ?? 7))
   let result
   try {
     const creds = await unseal(cfg.secret).catch(e => { throw needsUser(`讀不到儲存的金鑰：${e.message}`) })
@@ -181,7 +183,7 @@ async function connect(id, form) {
   const connectOnly = b.connectOnly?.(form) // used for this connection only; never saved
   const since = String(form.since ?? '')
   if (!isDate(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期') // Also rejects dates like 2025-02-31
-  if (!(await sdkVersion(b))) throw new Error(`請先安裝${b.sdk.label}`)
+  if (b.sdk && !(await sdkVersion(b))) throw new Error(`請先安裝${b.sdk.label}`)
   if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error('這台電腦無法安全加密金鑰，因此不能儲存')
   // Can't share a running auto sync: it would return results for the old keys, and the newly entered keys would never be saved
   idle(id, '正在同步中，請等一下再按「連線並同步」')

@@ -106,7 +106,7 @@ After a while, the pet evolves into a different form based on your behavior. **N
 - There is no backend server, and no user data is collected
 - Only two things go online:
   - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours; with US holdings, also Nasdaq's tables of every US stock and ETF and TAIFEX's exchange rates. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**. The one exception is opt-in: with "逐檔查美股歷史價格" (Look up US price history) on, the US tickers in your recurring plans are looked up one by one (see US stocks above)
-  - "證券帳戶同步" (Broker account sync), only if you set it up. It only connects to that broker's own servers (for Sinopac, through a temporary server that the official program runs on your computer)
+  - "證券帳戶同步" (Broker account sync), only if you set it up. It only connects to that broker's own servers (for Sinopac, through a temporary server that the official program runs on your computer); for Interactive Brokers it also downloads the central bank's public exchange rates, the whole file
 - Broker login details (for Fubon: your national ID number, API key and certificate password; the optional one-time history key is never stored) are encrypted with the system keychain (macOS Keychain / Windows DPAPI) and stored only on this computer
 
 > [!TIP]
@@ -254,6 +254,20 @@ Account queries need no CA certificate, no signed API agreement and no simulated
 - Sinopac's API can't query past trades, so NestEgg rebuilds them from "current positions + their buy details" and "realized profit and loss + the matching buy details" ([`sync/sinopac.js`](sync/sinopac.js)). Shares you still hold use the position's average cost. Positions are a snapshot, so each sync replaces the whole batch that the previous sync wrote to the ledger
 - Written from Sinopac's public documentation and sample data, and **not yet verified with a real account**. Checked with the real Shioaji 1.7.7 (macOS and Windows builds): the archive contents, startup flags, environment variables and API paths all exist, and a wrong key is recognized as a login failure. The returned data fields can only be confirmed with an account
 
+#### Interactive Brokers auto-sync (experimental)
+
+Right-click → "證券帳戶同步…" (Broker account sync) → "Interactive Brokers（盈透）". NestEgg uses IBKR's Flex Web Service, a reporting service: its token can only download the report you set up, never place an order.
+
+1. In IBKR's Client Portal, go to Performance & Reports → Flex Queries and create an **Activity Flex Query**: only the **Trades** section with **Executions** (select all fields), format **XML**, and the default date format `yyyyMMdd`. Its number in the list is the **Query ID**
+2. On the same page, open **Flex Web Service Configuration**, turn it on, choose how long the token lasts (up to a year) and click **Generate New Token**. Leave the IP restriction empty unless your IP never changes
+3. Enter the token, the Query ID and the date to import from, then connect and sync
+
+- Only executions of US-dollar stocks and ETFs are recorded; options, futures, forex and other currencies are skipped, and the sync says what it skipped. Symbols like `BRK B` become `BRK.B`
+- US dollar amounts and commissions are converted to NT$ with the central bank's rate of the trade date (the [public daily rates](https://cpx.cbc.gov.tw/API/DataAPI/Get?FileName=BP01D01), downloaded whole). The central bank publishes a rate up to a week later, and a trade waits until its rate is out, so its amount never changes once it's in the ledger; recent trades show up a few days late, which the grace period absorbs. Each daily sync looks back 60 days to pick them up
+- IBKR allows one report covering at most a year per request and ten requests a minute, so importing several years takes a minute or two
+- Stock splits and positions transferred in from another broker aren't trades, so they aren't recorded
+- Written from IBKR's public documentation and **not yet verified with a real account**. The error answers were checked against the real service with a made-up token
+
 ---
 
 ### Architecture
@@ -304,7 +318,7 @@ The shared flow lives in [`app/brokers.js`](app/brokers.js): installing the SDK 
 | File | Contents |
 |---|---|
 | `sync/<broker>.js` + tests | Broker trade data → ledger rows (a pure function; only cash trades count, and margin and short positions don't count toward principal) |
-| `app/brokers/<broker>.js` | The adapter: `credentials(form)` checks the required fields, and `fetch({ creds, from, to, … })` queries trades and returns `{ rows, accounts, warnings }`. Snapshot brokers (which only report current positions) add `snapshot: true`: each sync returns every row they own, which replaces the previous batch, and `fetch` receives that batch as `previous`. Stocks with incomplete data go in the returned `skipped` list so the previous batch is kept. Fields that are only needed while connecting and must never be saved come from `connectOnly(form)` and reach `fetch` as `connectOnly`. If users have to download an SDK themselves, add `sdk: { label, version, unpack }`; if a certificate file is needed, add `cert` |
+| `app/brokers/<broker>.js` | The adapter: `credentials(form)` checks the required fields, and `fetch({ creds, from, to, … })` queries trades and returns `{ rows, accounts, warnings }`. Snapshot brokers (which only report current positions) add `snapshot: true`: each sync returns every row they own, which replaces the previous batch, and `fetch` receives that batch as `previous`. Stocks with incomplete data go in the returned `skipped` list so the previous batch is kept. Fields that are only needed while connecting and must never be saved come from `connectOnly(form)` and reach `fetch` as `connectOnly`. If users have to download an SDK themselves, add `sdk: { label, version, unpack }`; if a certificate file is needed, add `cert`. Daily syncs look back 7 days from the last sync; a broker whose data arrives later sets `overlap` (days) |
 | `app/setup-<broker>.html` | Setup steps and form (the field names are the fields passed to `credentials`; shares `setup.js` and `setup.css`) |
 | `e2e/` | A fake SDK or server, so the end-to-end tests run without a real account |
 
@@ -341,6 +355,7 @@ Claude Code Review needs the repository secret `CLAUDE_CODE_OAUTH_TOKEN` (genera
   - Broker integration status:
     - Fubon Securities: done; login and permissions verified with a real account. Fubon only returns the trade history to keys with the 證券下單 (order) permission, so daily sync reconciles holdings with the 證券業務 permission only, and the history is an optional one-time import. The holdings fields still need to be verified with a real account
     - Sinopac Securities: done, **not yet verified with a real account** (whether position details count in board lots or shares, and the price fields, are unconfirmed); the Shioaji program itself was tested with version 1.7.7 for startup and login failure
+    - Interactive Brokers: done through the read-only Flex Web Service, **not yet verified with a real account** (the report fields follow IBKR's documentation; error answers were checked against the real service)
     - E.SUN Securities: **not built and not verified** (there's no E.SUN account to test with, and its login would require storing the brokerage account password; to be evaluated when it's built)
 - [ ] **Phase 5 Extensions and open contributions**: balanced diet, snacks, evolution branches, dividend fruit, sleeping and travelling
 
@@ -463,7 +478,7 @@ This project is not affiliated with any securities firm.
 - 沒有後端伺服器，不收集任何使用者資料
 - 會連網的只有兩件事：
   - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次；有美股的話，也下載 Nasdaq 的全部美股與 ETF 價格表和期交所的匯率。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**。唯一的例外要你自己打開：開啟「逐檔查美股歷史價格」後，定期定額計畫裡的美股代號會一檔一檔查（見上方「美股」）
-  - 「證券帳戶同步」（有設定才會），只連你設定的那家券商自己的伺服器（永豐是透過官方程式在本機開的暫時伺服器）
+  - 「證券帳戶同步」（有設定才會），只連你設定的那家券商自己的伺服器（永豐是透過官方程式在本機開的暫時伺服器）；Interactive Brokers 另外會下載中央銀行公開的整份匯率資料
 - 券商的登入資料（例如富邦的身分證字號、API Key 與憑證密碼；選用的一次性歷史匯入金鑰不會儲存）用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後只存在這台電腦
 
 > [!TIP]
@@ -611,6 +626,20 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 - 永豐的 API 查不到過去的成交紀錄，所以用「目前持倉＋買進明細」與「已實現損益＋對到的買進明細」拼回買賣紀錄（[`sync/sinopac.js`](sync/sinopac.js)）；還沒賣的股票用持倉平均成本計算。持倉是快照，每次同步會整批取代上次寫進帳本的那批
 - 照永豐公開文件與範例資料寫成，**還沒用真實帳戶驗證過**。已用真的 Shioaji 1.7.7（macOS、Windows 版）確認：壓縮檔內容、啟動參數、環境變數、用到的 API 路徑都存在，金鑰錯誤時會被認成登入失敗。查到的資料欄位要有帳戶才能確認
 
+#### Interactive Brokers 自動同步（實驗性）
+
+右鍵 →「證券帳戶同步…」→「Interactive Brokers（盈透）」。NestEgg 用 IB 的 Flex Web Service，這是報表服務：它的金鑰只能下載你設定好的報表，不能下單。
+
+1. 到 IB 的 Client Portal → Performance & Reports → Flex Queries，建立一個 **Activity Flex Query**：只勾 **Trades** 並選 **Executions**（欄位全選），格式選 **XML**，日期格式保留預設的 `yyyyMMdd`。列表上它的編號就是 **Query ID**
+2. 同一頁打開 **Flex Web Service Configuration**，啟用、選金鑰的有效期限（最長一年），按 **Generate New Token**。除非你的 IP 不會變，IP 限制請留空
+3. 填入金鑰、Query ID 和從哪天開始匯入，連線並同步
+
+- 只記美元計價的股票與 ETF 成交；選擇權、期貨、外匯與其他幣別會略過，同步完成時會告訴你略過了什麼。`BRK B` 這類代號會記成 `BRK.B`
+- 美元金額與手續費用中央銀行公布的成交日匯率換成台幣（[公開的每日匯率](https://cpx.cbc.gov.tw/API/DataAPI/Get?FileName=BP01D01)，整份下載）。央行最晚約一週後才公布，交易會等到當天匯率公布才記，所以寫進帳本後金額不會再變；最近幾天的交易會晚幾天出現，寵物有寬限。每天同步會往回查 60 天把它們補上
+- IB 每次最多查一年、每分鐘最多 10 次，匯入好幾年的紀錄要等一兩分鐘
+- 股票分割、從其他券商轉入的持股不是成交紀錄，不會記進帳本
+- 照 IB 公開文件寫成，**還沒用真實帳戶驗證過**。錯誤回應已用一組假的金鑰對真實服務確認過
+
 ---
 
 ### 架構
@@ -661,7 +690,7 @@ nestegg/
 | 檔案 | 內容 |
 |---|---|
 | `sync/<券商>.js` ＋ 測試 | 券商回傳的成交紀錄 → 帳本列（純函式；只算現股，融資融券不算本金） |
-| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；快照型券商（查得到的是目前持倉）加 `snapshot: true`：每次同步回傳它擁有的全部列、取代上一批，`fetch` 會從 `previous` 拿到上一批；資料不完整的股票放進回傳的 `skipped` 就會沿用上一批；只在連線時需要、不能儲存的欄位由 `connectOnly(form)` 產生，以 `connectOnly` 傳給 `fetch`；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
+| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；快照型券商（查得到的是目前持倉）加 `snapshot: true`：每次同步回傳它擁有的全部列、取代上一批，`fetch` 會從 `previous` 拿到上一批；資料不完整的股票放進回傳的 `skipped` 就會沿用上一批；只在連線時需要、不能儲存的欄位由 `connectOnly(form)` 產生，以 `connectOnly` 傳給 `fetch`；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert`；每天同步會從上次同步往回重疊 7 天，資料比較晚到的券商可以用 `overlap`（天數）調長 |
 | `app/setup-<券商>.html` | 設定步驟說明與表單（欄位名稱就是送給 `credentials` 的欄位，共用 `setup.js`、`setup.css`） |
 | `e2e/` | 假的 SDK 或伺服器，讓端到端測試不用真帳戶也能跑 |
 
@@ -699,6 +728,7 @@ Claude Code Review 需要在 repo 設定 secret `CLAUDE_CODE_OAUTH_TOKEN`（用 
   - 券商串接狀態：
     - 富邦證券：已完成，已用真實帳戶驗證登入與權限。富邦要「證券下單」權限才查得到成交紀錄，所以每天改用「證券業務」權限對帳持股，歷史紀錄是選用的一次性匯入。持股欄位還要用真實帳戶驗證
     - 永豐金證券：已完成，**還沒用真實帳戶驗證**（持倉明細的張／股單位、價格欄位待確認）；Shioaji 程式本身已用 1.7.7 實測啟動與登入失敗
+    - Interactive Brokers：用唯讀的 Flex Web Service 做好了，**還沒用真實帳戶驗證過**（報表欄位照 IB 的文件；錯誤回應已對真實服務確認過）
     - 玉山證券：**還沒做、也沒驗證**（目前沒有玉山帳戶可以測；登入需要存證券帳戶密碼，要做時再評估）
 - [ ] **Phase 5　擴充與開放貢獻**：營養均衡、零食、進化分支、配息果實、睡著與旅行
 
