@@ -49,6 +49,16 @@ function render(data) {
   }))
 }
 
+// A plans.json broken by hand can't be read: say why instead of staying blank. Adding a plan still works and
+// replaces the broken file, so the message says so
+async function load() {
+  try {
+    render(await window.plans.get())
+  } catch (e) {
+    show(`${reason(e)}。在這裡新增計畫會取代這個壞掉的檔案。`, 'error')
+  }
+}
+
 // On failure nothing is saved: show why and redraw the plans as they are
 async function save(next) {
   try {
@@ -57,7 +67,7 @@ async function save(next) {
     return true
   } catch (e) {
     show(reason(e), 'error')
-    render(await window.plans.get())
+    await load()
     return false
   }
 }
@@ -71,4 +81,4 @@ add.onsubmit = async e => {
   }
 }
 
-window.plans.get().then(render)
+load()

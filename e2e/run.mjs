@@ -491,6 +491,9 @@ async function runAll() {
     writeFileSync(file, '[{ 壞掉')
     await page('window.petSettings.set({}); 0', plans()) // Any save refreshes the pet
     await until('bubble.textContent', v => /定期定額計畫讀取失敗/.test(v ?? ''), '計畫檔壞掉的提示')
+    // Opening the plans window then says why instead of staying blank
+    plans().webContents.reload()
+    assert.match(await until('document.getElementById("result").textContent', v => v, '計畫視窗的錯誤訊息', 15_000, plans), /定期定額計畫讀取失敗.*新增計畫會取代/)
     rmSync(file)
     await page('window.petSettings.set({}); 0', plans())
     await until('bubble.hidden', v => v === true, '修好後提示消失')
