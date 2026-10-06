@@ -152,7 +152,8 @@ async function runAll() {
 
   await test('啟動：寵物在主螢幕的可用範圍內，沒有帳本時是蛋與提示', async () => {
     await until('document.readyState', v => v === 'complete', '頁面載入')
-    await until('state.stage', v => v === 'none', '沒有帳本的狀態')
+    // The page starts with a placeholder state of the same stage; age only exists once the main process has sent one
+    await until('state.age !== undefined && state.stage', v => v === 'none', '沒有帳本的狀態')
     const b = win().getBounds(), a = screen.getPrimaryDisplay().workArea
     assert.ok(b.x >= a.x && b.y >= a.y && b.x + b.width <= a.x + a.width && b.y + b.height <= a.y + a.height, JSON.stringify({ b, a }))
     assert.match(await page('bubble.hidden ? "" : bubble.textContent'), /還沒有交易紀錄/)
