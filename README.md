@@ -116,23 +116,54 @@ After a while, the pet evolves into a different form based on your behavior. **N
 
 ### Getting started
 
-#### macOS installer
+#### Install
+
+Download the latest installer from the [Releases page](https://github.com/apapp45455/nestegg/releases/latest):
+
+| System | File |
+|---|---|
+| macOS on Apple silicon (M1 or later) | `NestEgg-<version>-arm64.dmg` |
+| Windows 10 or 11, 64-bit | `NestEgg Setup <version>.exe` |
+
+There's no download for Intel Macs; [run from source](#run-from-source) or [build an installer yourself](#build-an-installer-yourself) instead.
+
+NestEgg is a free open-source project, so the installers aren't signed with a paid developer certificate, and the system warns you the first time.
+
+**macOS**
+
+1. Open the `.dmg` and drag NestEgg into Applications
+2. Open NestEgg. macOS says it can't verify the app; click "Done"
+3. In System Settings → Privacy & Security, scroll down, click "Open Anyway" next to NestEgg and confirm. From then on it opens normally
+
+If macOS instead says NestEgg "is damaged and can't be opened", run this once in Terminal, then open it again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/NestEgg.app
+```
+
+> [!NOTE]
+> NestEgg shows up in the Dock. Clicking the icon makes the pet show a status bubble (handy when you can't find it), and right-clicking the icon gives you import, export, broker sync and more.
+>
+> The pet stays on the desktop it's on. When another app is full screen (for example, a video), the pet doesn't cover it, and it comes back when you leave full screen.
+>
+> By default, clicking the wallpaper makes macOS move all windows aside (including the pet) to show the desktop; click the wallpaper again to bring them back. To turn this off, go to System Settings → Desktop & Dock → "Click wallpaper to reveal desktop" and choose "Only in Stage Manager".
+
+**Windows**
+
+1. Run `NestEgg Setup <version>.exe`. If "Windows protected your PC" appears, click "More info" → "Run anyway"
+2. It installs for your user account only (no administrator rights needed), adds Start menu and desktop shortcuts, and starts NestEgg. To uninstall, use Settings → Apps
+
+> [!NOTE]
+> CI builds the Windows installer and runs the end-to-end tests on Windows, but it hasn't been tried by hand on a real Windows computer yet. If something looks wrong, please open an issue.
+
+#### Build an installer yourself
 
 ```bash
 npm install
 npm run dist
 ```
 
-This produces `dist/NestEgg-0.1.0-arm64.dmg`. Open it and drag NestEgg into Applications.
-
-> [!NOTE]
-> The installer has no Apple developer signature (that needs a paid account). An installer you build on your own computer opens normally. If you **send it to someone over the internet or AirDrop**, the first time they open it they need to right-click NestEgg in Finder → Open, or click "Open Anyway" in System Settings → Privacy & Security.
->
-> NestEgg shows up in the Dock. Clicking the icon makes the pet show a status bubble (handy when you can't find it), and right-clicking the icon gives you import, export, broker sync and more.
->
-> The pet stays on the desktop it's on. When another app is full screen (for example, a video), the pet doesn't cover it, and it comes back when you leave full screen.
->
-> By default, clicking the wallpaper makes macOS move all windows aside (including the pet) to show the desktop; click the wallpaper again to bring them back. To turn this off, go to System Settings → Desktop & Dock → "Click wallpaper to reveal desktop" and choose "Only in Stage Manager".
+This builds an installer for the operating system you run it on, in `dist/` (a `.dmg` on a Mac, `NestEgg Setup <version>.exe` on Windows). An installer you build on your own computer opens without the warnings above.
 
 #### Run from source
 
@@ -442,23 +473,54 @@ This project is not affiliated with any securities firm.
 
 ### 開始玩
 
-#### macOS 安裝檔
+#### 安裝
+
+到 [Releases 頁面](https://github.com/apapp45455/nestegg/releases/latest) 下載最新的安裝檔：
+
+| 系統 | 檔案 |
+|---|---|
+| macOS，Apple 晶片（M1 以後） | `NestEgg-<版本>-arm64.dmg` |
+| Windows 10 或 11，64 位元 | `NestEgg Setup <版本>.exe` |
+
+Intel 晶片的 Mac 沒有現成的安裝檔，請改用[從原始碼執行](#從原始碼執行)或[自己打包安裝檔](#自己打包安裝檔)。
+
+NestEgg 是免費的開源專案，安裝檔沒有付費的開發者簽章，所以第一次開啟時系統會警告。
+
+**macOS**
+
+1. 打開 `.dmg`，把 NestEgg 拖進「應用程式」
+2. 打開 NestEgg。macOS 會說無法驗證這個 app，按「完成」
+3. 到「系統設定 → 隱私權與安全性」，往下捲，在 NestEgg 旁邊按「強制打開」並確認。之後就能正常開啟
+
+如果 macOS 說 NestEgg「已損毀，無法打開」，在「終端機」執行一次下面這行，再重新打開：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/NestEgg.app
+```
+
+> [!NOTE]
+> NestEgg 會出現在 Dock：點圖示寵物會冒出狀態氣泡（找不到牠時很好用），在圖示上按右鍵也有匯入、匯出、券商同步等選單。
+>
+> 寵物只待在它所在的那個桌面；其他 app 全螢幕時（例如看影片）不會擋在畫面上，離開全螢幕就回來。
+>
+> 在桌布上按一下時，macOS 預設會把所有視窗（包含寵物）推開以顯示桌面，再按一次桌布就會回來。不想要這個行為，可以到「系統設定 → 桌面與 Dock → 按一下背景圖片以顯示桌面」改成「僅在幕前調度中」。
+
+**Windows**
+
+1. 執行 `NestEgg Setup <版本>.exe`。如果出現「Windows 已保護您的電腦」，按「其他資訊」→「仍要執行」
+2. 只會安裝在你的使用者帳號（不需要系統管理員權限），會建立開始功能表與桌面捷徑，並啟動 NestEgg。要移除的話，到「設定 → 應用程式」
+
+> [!NOTE]
+> Windows 安裝檔由 CI 打包，端到端測試也會在 Windows 上跑，但還沒有人在真的 Windows 電腦上手動裝過。如果有問題，歡迎開 issue。
+
+#### 自己打包安裝檔
 
 ```bash
 npm install
 npm run dist
 ```
 
-產出 `dist/NestEgg-0.1.0-arm64.dmg`，打開後把 NestEgg 拖進「應用程式」即可。
-
-> [!NOTE]
-> 安裝檔沒有 Apple 開發者簽章（需付費帳號）。自己電腦上打包的可以直接開；**從網路或 AirDrop 傳給別人**的，第一次要在 Finder 對 NestEgg 按右鍵 →「打開」，或到「系統設定 → 隱私權與安全性」按「強制打開」。
->
-> NestEgg 會出現在 Dock：點圖示寵物會冒出狀態氣泡（找不到牠時很好用），在圖示上按右鍵也有匯入、匯出、富邦同步等選單。
->
-> 寵物只待在它所在的那個桌面；其他 app 全螢幕時（例如看影片）不會擋在畫面上，離開全螢幕就回來。
->
-> 在桌布上按一下時，macOS 預設會把所有視窗（包含寵物）推開以顯示桌面，再按一次桌布就會回來。不想要這個行為，可以到「系統設定 → 桌面與 Dock → 按一下背景圖片以顯示桌面」改成「僅在幕前調度中」。
+會在 `dist/` 產出你目前作業系統的安裝檔（Mac 是 `.dmg`，Windows 是 `NestEgg Setup <版本>.exe`）。在自己電腦上打包的安裝檔，開啟時不會出現上面的警告。
 
 #### 從原始碼執行
 
