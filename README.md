@@ -101,7 +101,7 @@ After a while, the pet evolves into a different form based on your behavior. **N
 - Only two things go online:
   - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**
   - "證券帳戶同步" (Broker account sync), only if you set it up. It only connects to that broker's own servers (for Sinopac, through a temporary server that the official program runs on your computer)
-- Broker login details (for Fubon: your national ID number, API key and certificate password) are encrypted with the system keychain (macOS Keychain / Windows DPAPI) and stored only on this computer
+- Broker login details (for Fubon: your national ID number, API key and certificate password; the optional one-time history key is never stored) are encrypted with the system keychain (macOS Keychain / Windows DPAPI) and stored only on this computer
 
 > [!TIP]
 > Right-click → "匯出備份…" (Export backup) saves a copy of your ledger. The ledger is a plain CSV that any editor can open.
@@ -178,14 +178,16 @@ Right-click → "證券帳戶同步…" (Broker account sync) → "富邦證券"
    ```
 
    It only logs in once with your account password and then logs out, and it stores nothing. Once you see "…此訊息表連線測試成功" ("…this message means the connection test succeeded"), you're done; the API is enabled by 9:00 the next day
-5. Create an API key with **account-query permission only**, so even if it leaks it can't be used to place orders
-6. Once the API is enabled, enter your national ID number, API key and certificate to connect and import your trade history
+5. Create an API key with only the "證券業務" (Securities account) permission. **Don't check "證券下單" (Securities orders)**, so even if the key leaks it can't be used to place orders
+6. *(Optional)* Import your past trades. **If you don't need your history, skip this: syncing only needs "證券業務", not "證券下單".** Fubon only returns the trade history to keys with the "證券下單" order permission, so to import it, create a second key with "證券業務" + "證券下單" and the earliest expiry date Fubon allows (this key can place orders, so paste it nowhere else), paste it into the "歷史匯入用 API Key" (history import key) field, and delete it at Fubon once the import is done. NestEgg uses it for that one connection and never stores it
+7. Once the API is enabled, enter your national ID number, API key and certificate to connect
 
-After that, NestEgg syncs automatically once a day (each sync overlaps the previous one by a week; duplicate records are merged automatically).
+After that, NestEgg syncs automatically once a day by reconciling your holdings: it reads your current Fubon holdings and compares them with what it recorded last time. More shares are recorded as a buy, fewer as a sell, dated the day NestEgg notices the change (a few days late if the computer was off; the pet's 7-day grace period absorbs that). Without imported history, your current holdings are recorded as bought on the day you connect, so the pet starts as an egg.
 
-- The code only calls API-key login, `stock.filledHistory` (trade history query) and logout. There are **no order-related calls**; see [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
-- Only cash trades and day trades count; margin buying, short selling and securities lending don't count toward principal
-- Fubon's trade history doesn't include fees, so principal comes out slightly low. For exact numbers, import your statement CSV instead (use one source or the other, not both, to avoid duplicates)
+- The code only calls API-key login, `accounting.unrealizedGainsAndLoses` (holdings), `stock.filledHistory` (trade history, only with the one-time key) and logout. There are **no order-related calls**; see [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
+- Only cash holdings and trades count; margin buying, short selling and securities lending don't count toward principal
+- The imported trade history doesn't include fees, so that part of the principal comes out slightly low; daily reconciliation uses Fubon's cost price. If you've imported Fubon statements as CSV, use one source or the other, not both, to avoid duplicates
+- If auto sync would record a sell while Fubon returned no holdings at all, or answered "no data" (查無) for one of your accounts, it stops and asks you to confirm with "立即同步" (Sync now), in case the empty answer was temporary
 - If auto-sync fails (for example, because the API key expired), it pauses and shows a notice next to the pet, instead of logging in again and again and getting your account locked
 - The first time it syncs on a Mac, macOS asks whether NestEgg may use the keychain; choose "Always Allow"
 
@@ -254,7 +256,7 @@ The shared flow lives in [`app/brokers.js`](app/brokers.js): installing the SDK 
 | File | Contents |
 |---|---|
 | `sync/<broker>.js` + tests | Broker trade data → ledger rows (a pure function; only cash trades count, and margin and short positions don't count toward principal) |
-| `app/brokers/<broker>.js` | The adapter: `credentials(form)` checks the required fields, and `fetch({ creds, from, to, … })` queries trades and returns `{ rows, accounts, warnings }`. Snapshot brokers (which only report current positions) add `snapshot: true`, and stocks with incomplete data go in the returned `skipped` list so the previous batch is kept. If users have to download an SDK themselves, add `sdk: { label, version, unpack }`; if a certificate file is needed, add `cert` |
+| `app/brokers/<broker>.js` | The adapter: `credentials(form)` checks the required fields, and `fetch({ creds, from, to, … })` queries trades and returns `{ rows, accounts, warnings }`. Snapshot brokers (which only report current positions) add `snapshot: true`: each sync returns every row they own, which replaces the previous batch, and `fetch` receives that batch as `previous`. Stocks with incomplete data go in the returned `skipped` list so the previous batch is kept. Fields that are only needed while connecting and must never be saved come from `connectOnly(form)` and reach `fetch` as `connectOnly`. If users have to download an SDK themselves, add `sdk: { label, version, unpack }`; if a certificate file is needed, add `cert` |
 | `app/setup-<broker>.html` | Setup steps and form (the field names are the fields passed to `credentials`; shares `setup.js` and `setup.css`) |
 | `e2e/` | A fake SDK or server, so the end-to-end tests run without a real account |
 
@@ -289,7 +291,7 @@ Claude Code Review needs the repository secret `CLAUDE_CODE_OAUTH_TOKEN` (genera
 - [ ] **Phase 3 Play with it for a month**: only tune the numbers, no new features
 - [ ] **Phase 4 Automation**: Fubon Securities sync ✅, weather/mood/fur ✅, Windows installer (macOS ✅)
   - Broker integration status:
-    - Fubon Securities: done; to be verified with a real account once the API is enabled
+    - Fubon Securities: done; login and permissions verified with a real account. Fubon only returns the trade history to keys with the 證券下單 (order) permission, so daily sync reconciles holdings with the 證券業務 permission only, and the history is an optional one-time import. The holdings fields still need to be verified with a real account
     - Sinopac Securities: done, **not yet verified with a real account** (whether position details count in board lots or shares, and the price fields, are unconfirmed); the Shioaji program itself was tested with version 1.7.7 for startup and login failure
     - E.SUN Securities: **not built and not verified** (there's no E.SUN account to test with, and its login would require storing the brokerage account password; to be evaluated when it's built)
 - [ ] **Phase 5 Extensions and open contributions**: balanced diet, snacks, evolution branches, dividend fruit, sleeping and travelling
@@ -408,7 +410,7 @@ This project is not affiliated with any securities firm.
 - 會連網的只有兩件事：
   - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**
   - 「證券帳戶同步」（有設定才會），只連你設定的那家券商自己的伺服器（永豐是透過官方程式在本機開的暫時伺服器）
-- 券商的登入資料（例如富邦的身分證字號、API Key 與憑證密碼）用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後只存在這台電腦
+- 券商的登入資料（例如富邦的身分證字號、API Key 與憑證密碼；選用的一次性歷史匯入金鑰不會儲存）用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後只存在這台電腦
 
 > [!TIP]
 > 右鍵 →「匯出備份…」可以把帳本另存一份。帳本就是普通的 CSV，用任何編輯器都能打開。
@@ -485,14 +487,16 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
    ```
 
    只會用帳號密碼登入一次再登出，不儲存任何資料。看到「…此訊息表連線測試成功」就完成了，API 隔天 9:00 前開通
-5. 建立**只有帳務查詢權限**的 API Key —— 就算外洩也不能拿來下單
-6. API 開通後，輸入身分證字號、API Key、憑證，連線並匯入歷史成交紀錄
+5. 建立 API Key，權限只勾「證券業務」，**不要勾「證券下單」**——就算外洩也不能拿來下單
+6. （選用）匯入過去的成交紀錄。**不需要歷史紀錄就跳過這一步：同步只需要「證券業務」，不用開「證券下單」。**富邦要有「證券下單」權限的金鑰才查得到成交紀錄，所以要匯入的話，另外建立一把勾「證券業務」＋「證券下單」的金鑰（到期日選最近的日期；這把金鑰能下單，請只貼在這裡），貼到「歷史匯入用 API Key」，匯入完成後到富邦把它刪除。NestEgg 只在這次連線時用它，不會儲存
+7. API 開通後，輸入身分證字號、API Key、憑證，連線並同步
 
-設定好之後，NestEgg 每天會自動同步一次（跟上次同步重疊一週，重複的紀錄會自動合併）。
+設定好之後，NestEgg 每天會自動對帳一次：讀你目前的富邦持股，和上次記下的比對，股數變多記成買進、變少記成賣出，日期是 NestEgg 發現變化的那天（電腦沒開的日子會晚幾天，寵物有 7 天寬限，不太受影響）。沒有匯入歷史的話，目前的持股會記成連線那天買進，寵物從蛋開始。
 
-- 程式只呼叫 API Key 登入、`stock.filledHistory`（成交紀錄查詢）與登出，**沒有任何下單相關的呼叫**，見 [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
-- 只算現股與當沖；融資、融券、借券不算本金
-- 富邦的成交紀錄不含手續費，所以本金會略少一點；要精確請改匯入對帳單 CSV（兩種來源擇一，以免重複）
+- 程式只呼叫 API Key 登入、`accounting.unrealizedGainsAndLoses`（持股）、`stock.filledHistory`（成交紀錄，只有一次性金鑰會用到）與登出，**沒有任何下單相關的呼叫**，見 [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
+- 只算現股；融資、融券、借券不算本金
+- 匯入的歷史成交紀錄不含手續費，所以這部分本金會略少一點；每天對帳用的是富邦的成本價。用 CSV 匯入過富邦對帳單的話，兩種來源擇一，以免重複
+- 自動同步要記一筆賣出、而富邦這次完全沒有回傳持股，或有帳戶回「查無」時，會先停下來請你按「立即同步」確認，以免是暫時查不到
 - 自動同步失敗（例如 API Key 過期）會暫停並在寵物旁提示，不會反覆登入導致帳號被鎖
 - Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」
 
@@ -561,7 +565,7 @@ nestegg/
 | 檔案 | 內容 |
 |---|---|
 | `sync/<券商>.js` ＋ 測試 | 券商回傳的成交紀錄 → 帳本列（純函式；只算現股，融資融券不算本金） |
-| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；快照型券商（查得到的是目前持倉）加 `snapshot: true`，資料不完整的股票放進回傳的 `skipped` 就會沿用上一批；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
+| `app/brokers/<券商>.js` | adapter：`credentials(form)` 檢查要填的欄位、`fetch({ creds, from, to, … })` 查成交紀錄回傳 `{ rows, accounts, warnings }`；快照型券商（查得到的是目前持倉）加 `snapshot: true`：每次同步回傳它擁有的全部列、取代上一批，`fetch` 會從 `previous` 拿到上一批；資料不完整的股票放進回傳的 `skipped` 就會沿用上一批；只在連線時需要、不能儲存的欄位由 `connectOnly(form)` 產生，以 `connectOnly` 傳給 `fetch`；有要使用者自行下載的 SDK 就加 `sdk: { label, version, unpack }`，要選憑證檔就加 `cert` |
 | `app/setup-<券商>.html` | 設定步驟說明與表單（欄位名稱就是送給 `credentials` 的欄位，共用 `setup.js`、`setup.css`） |
 | `e2e/` | 假的 SDK 或伺服器，讓端到端測試不用真帳戶也能跑 |
 
@@ -597,7 +601,7 @@ Claude Code Review 需要在 repo 設定 secret `CLAUDE_CODE_OAUTH_TOKEN`（用 
 - [ ] **Phase 3　自己玩一個月**：只調數值，不加功能
 - [ ] **Phase 4　自動化**：富邦證券同步 ✅、天氣／心情／毛色 ✅、Windows 安裝檔（macOS ✅）
   - 券商串接狀態：
-    - 富邦證券：已完成，等 API 開通後用真實帳戶驗證
+    - 富邦證券：已完成，已用真實帳戶驗證登入與權限。富邦要「證券下單」權限才查得到成交紀錄，所以每天改用「證券業務」權限對帳持股，歷史紀錄是選用的一次性匯入。持股欄位還要用真實帳戶驗證
     - 永豐金證券：已完成，**還沒用真實帳戶驗證**（持倉明細的張／股單位、價格欄位待確認）；Shioaji 程式本身已用 1.7.7 實測啟動與登入失敗
     - 玉山證券：**還沒做、也沒驗證**（目前沒有玉山帳戶可以測；登入需要存證券帳戶密碼，要做時再評估）
 - [ ] **Phase 5　擴充與開放貢獻**：營養均衡、零食、進化分支、配息果實、睡著與旅行
