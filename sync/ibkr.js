@@ -56,7 +56,7 @@ const number = s => Math.abs(Number.parseFloat(String(s ?? '').replace(/,/g, '')
 // (the last one published on or before it). A trade newer than the latest published rate waits for the next sync, so its
 // amount never changes once written (a changed amount would look like a second trade).
 export function toRows(trades, rates, from, to) {
-  const rows = [], skipped = { currency: new Set(), cancelled: 0, date: 0 }
+  const rows = [], skipped = { currency: new Set(), date: 0 }
   let waiting = 0
   const latest = rates.at(-1)?.[0]
   const rateOn = date => {
@@ -67,13 +67,26 @@ export function toRows(trades, rates, from, to) {
     }
     return found
   }
-  for (const t of trades) {
-    // Only executions: a query that also lists orders or closed lots would count the same shares twice
-    if (t.assetCategory !== 'STK' || (t.levelOfDetail && t.levelOfDetail !== 'EXECUTION')) continue
+  // Only stock executions: a query that also lists orders or closed lots would count the same shares twice
+  const stocks = trades.filter(t => t.assetCategory === 'STK' && (!t.levelOfDetail || t.levelOfDetail === 'EXECUTION'))
+  // IBKR lists a cancelled execution twice: the original, and a "BUY (Ca.)" or "SELL (Ca.)" entry pointing at it with
+  // origTradeID. Both are left out; without the ID, the original is found by symbol, date, quantity and price
+  const isCancel = t => /\(Ca\.\)/.test(t.buySell ?? '')
+  const cancels = stocks.filter(isCancel)
+  const cancelledIds = new Set(cancels.map(t => t.origTradeID).filter(Boolean))
+  const key = (t, orig) => [t.symbol, isoDate((orig && t.origTradeDate) || t.tradeDate), number(t.quantity), number((orig && t.origTradePrice) || t.tradePrice)].join('|')
+  const cancelledKeys = cancels.filter(t => !t.origTradeID).map(t => key(t, true))
+  for (const t of stocks) {
+    if (isCancel(t) || (t.buySell !== 'BUY' && t.buySell !== 'SELL')) continue
+    if (cancelledIds.has(t.tradeID)) continue
+    const k = cancelledKeys.indexOf(key(t))
+    if (k >= 0) {
+      cancelledKeys.splice(k, 1)
+      continue
+    }
     const date = isoDate(t.tradeDate)
     if (!date) { skipped.date++; continue }
     if (date < from || date > to) continue
-    if (t.buySell !== 'BUY' && t.buySell !== 'SELL') { skipped.cancelled++; continue } // "BUY (Ca.)": a cancelled trade
     if (t.currency !== 'USD') { skipped.currency.add(t.currency); continue }
     if (!latest || date > latest) { waiting++; continue }
     const rate = rateOn(date)
@@ -92,7 +105,11 @@ export function toRows(trades, rates, from, to) {
   const warnings = []
   if (waiting) warnings.push(`${waiting} 筆最近的交易還等不到中央銀行公布當天匯率，之後同步會補上`)
   if (skipped.currency.size) warnings.push(`略過非美元的交易（${[...skipped.currency].join('、')}），NestEgg 目前只換算美元`)
-  if (skipped.cancelled) warnings.push(`略過 ${skipped.cancelled} 筆已取消的交易`)
+  // A cancellation can arrive after the original was already written by an earlier sync, which merges and never deletes
+  if (cancels.length) {
+    const list = cancels.map(t => `${isoDate(t.origTradeDate || t.tradeDate)} ${t.symbol}`).join('、')
+    warnings.push(`IB 取消了 ${cancels.length} 筆成交（${list}），這次不記；如果之前的同步已經記進帳本，請手動刪掉那一筆`)
+  }
   if (skipped.date) warnings.push(`有 ${skipped.date} 筆交易的日期看不懂，請把 Flex Query 的日期格式設成 yyyyMMdd`)
   return { rows, warnings }
 }

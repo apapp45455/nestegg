@@ -263,6 +263,7 @@ Right-click → "證券帳戶同步…" (Broker account sync) → "Interactive B
 3. Enter the token, the Query ID and the date to import from, then connect and sync
 
 - Only executions of US-dollar stocks and ETFs are recorded; options, futures, forex and other currencies are skipped, and the sync says what it skipped. Symbols like `BRK B` become `BRK.B`
+- A trade IBKR cancelled is left out together with its cancellation. If an earlier sync already recorded it, the sync names it so you can delete that line from the ledger
 - US dollar amounts and commissions are converted to NT$ with the central bank's rate of the trade date (the [public daily rates](https://cpx.cbc.gov.tw/API/DataAPI/Get?FileName=BP01D01), downloaded whole). The central bank publishes a rate up to a week later, and a trade waits until its rate is out, so its amount never changes once it's in the ledger; recent trades show up a few days late, which the grace period absorbs. Each daily sync looks back 60 days to pick them up
 - IBKR allows one report covering at most a year per request and ten requests a minute, so importing several years takes a minute or two
 - Stock splits and positions transferred in from another broker aren't trades, so they aren't recorded
@@ -635,6 +636,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 3. 填入金鑰、Query ID 和從哪天開始匯入，連線並同步
 
 - 只記美元計價的股票與 ETF 成交；選擇權、期貨、外匯與其他幣別會略過，同步完成時會告訴你略過了什麼。`BRK B` 這類代號會記成 `BRK.B`
+- IB 取消的成交，原本那筆和取消單都不記。如果之前的同步已經記進帳本，同步完成時會告訴你是哪一筆，請手動從帳本刪掉
 - 美元金額與手續費用中央銀行公布的成交日匯率換成台幣（[公開的每日匯率](https://cpx.cbc.gov.tw/API/DataAPI/Get?FileName=BP01D01)，整份下載）。央行最晚約一週後才公布，交易會等到當天匯率公布才記，所以寫進帳本後金額不會再變；最近幾天的交易會晚幾天出現，寵物有寬限。每天同步會往回查 60 天把它們補上
 - IB 每次最多查一年、每分鐘最多 10 次，匯入好幾年的紀錄要等一兩分鐘
 - 股票分割、從其他券商轉入的持股不是成交紀錄，不會記進帳本

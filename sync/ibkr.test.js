@@ -25,7 +25,8 @@ ${trade({ symbol: 'VOO', tradeDate: '20250915', quantity: '10', tradePrice: '500
 ${trade({ symbol: 'BRK B', tradeDate: '2025-09-16', quantity: '2', tradePrice: '450', proceeds: '-900', ibCommission: '-1', buySell: 'BUY' })}
 ${trade({ symbol: 'VOO', tradeDate: '20250920', quantity: '-3', tradePrice: '520', proceeds: '1560', ibCommission: '-1', taxes: '-0.03', buySell: 'SELL' })}
 ${trade({ symbol: 'VOO  250919C00500000', assetCategory: 'OPT', tradeDate: '20250915', quantity: '1', proceeds: '-300', buySell: 'BUY' })}
-${trade({ symbol: 'VOO', tradeDate: '20250917', quantity: '-1', proceeds: '500', buySell: 'BUY (Ca.)' })}
+${trade({ symbol: 'VOO', tradeID: '901', tradeDate: '20250917', quantity: '1', tradePrice: '500', proceeds: '-500', buySell: 'BUY' })}
+${trade({ symbol: 'VOO', tradeID: '902', origTradeID: '901', tradeDate: '20250918', origTradeDate: '20250917', quantity: '-1', tradePrice: '500', proceeds: '500', buySell: 'BUY (Ca.)' })}
 ${trade({ symbol: '700', currency: 'HKD', tradeDate: '20250917', quantity: '100', proceeds: '-50000', buySell: 'BUY' })}
 ${trade({ symbol: 'QQQ', tradeDate: '20250923', quantity: '1', proceeds: '-600', buySell: 'BUY' })}
 </Trades>
@@ -49,7 +50,7 @@ test('parseFlexStatus: success gives the reference code, failure the error code;
 
 test('parseTrades: every Trade with its attributes, entities decoded; a CSV report is refused', () => {
   const trades = parseTrades(STATEMENT)
-  assert.equal(trades.length, 8)
+  assert.equal(trades.length, 9)
   assert.equal(trades[0].description, 'VANGUARD S&P 500 ETF')
   assert.throws(() => parseTrades('ClientAccountID,Symbol\nU1,VOO'), /XML/)
 })
@@ -70,7 +71,7 @@ test('toRows: US-dollar stock executions in NT$ at the rate of the trade date; t
   assert.equal(warnings.length, 3)
   assert.match(warnings.join('\n'), /1 筆最近的交易還等不到/) // QQQ on 09-23, after the latest published rate
   assert.match(warnings.join('\n'), /非美元的交易（HKD）/)
-  assert.match(warnings.join('\n'), /1 筆已取消/)
+  assert.match(warnings.join('\n'), /IB 取消了 1 筆成交（2025-09-17 VOO），這次不記/) // Neither the cancelled buy nor its cancellation
   // Outside the requested dates: left to the sync that asks for them
   assert.deepEqual(toRows(parseTrades(STATEMENT), parseCbcRates(CBC), '2025-09-16', '2025-09-16').rows.map(r => r.symbol), ['BRK.B'])
 })
@@ -78,4 +79,11 @@ test('toRows: US-dollar stock executions in NT$ at the rate of the trade date; t
 test('flexWindows: 365-day ranges in yyyyMMdd covering from to to', () => {
   assert.deepEqual(flexWindows('2024-01-01', '2025-03-01'), [['20240101', '20241230'], ['20241231', '20250301']])
   assert.deepEqual(flexWindows('2026-10-06', '2026-10-06'), [['20261006', '20261006']])
+})
+
+test('toRows: a cancellation without origTradeID still takes out the original with the same symbol, date, quantity and price', () => {
+  const rates = [['2025-09-15', 30]]
+  const buy = { assetCategory: 'STK', currency: 'USD', symbol: 'VOO', tradeDate: '20250915', quantity: '2', tradePrice: '500', proceeds: '-1000', buySell: 'BUY' }
+  const cancel = { ...buy, quantity: '-2', proceeds: '1000', buySell: 'BUY (Ca.)' }
+  assert.deepEqual(toRows([buy, buy, cancel], rates, '2025-09-01', '2025-09-30').rows.map(r => r.shares), [2]) // One of two identical buys
 })
