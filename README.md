@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/apapp45455/nestegg/actions/workflows/ci.yml/badge.svg)](https://github.com/apapp45455/nestegg/actions/workflows/ci.yml)
 
+![NestEgg demo: the pet hatches and grows with time and regular investing, then shows sunny, rainy and typhoon market days](docs/demo.gif)
+
 **[English](#english)** · **[繁體中文](#繁體中文)**
 
 ## English
