@@ -24,7 +24,7 @@ The pet is a small, transparent, always-on-top window that sits in a corner of y
 
 - **Drag** it wherever you like
 - **Click** it to see how many days old it is, how big it is and whether it has eaten
-- **Right-click** it to import trades, export a backup, edit the ledger by hand, open pet settings or quit
+- **Right-click** it to import trades, export a backup, edit the ledger by hand, set up recurring plans, open pet settings or quit
 
 ### Core idea: separate what you control from what the market gives
 
@@ -97,6 +97,8 @@ After a while, the pet evolves into a different form based on your behavior. **N
 - All your data lives in a single CSV file on your computer:
   - macOS: `~/Library/Application Support/NestEgg/ledger.csv`
   - Windows: `%APPDATA%\NestEgg\ledger.csv`
+
+  Recurring plans (`plans.json`) and pet settings (`settings.json`) are kept in the same folder.
 - There is no backend server, and no user data is collected
 - Only two things go online:
   - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**
@@ -163,6 +165,16 @@ date,symbol,action,shares,amount,fee
 | `fee` | Fees and taxes |
 
 UTF-8 files saved from Excel (with a BOM) and Windows line endings import fine. If something is wrong, it tells you which line, and nothing is half-imported.
+
+#### Recurring plans
+
+If you invest the same amount on the same day every month, set it up once: right-click → "定期定額計畫…" (Recurring plans), then enter the symbol, the monthly amount in NT$, the debit day and the start date. Every month the pet counts that contribution automatically, with nothing to import or type.
+
+- This is the way to raise the pet on **US stocks bought through 複委託 (sub-brokerage)**: the Fubon, Sinopac and Cathay APIs can't read sub-brokerage accounts. It works for Taiwan stocks too
+- Only the money is recorded (shares are 0). That's all the pet needs for age, fullness and size; mood and fur need prices, which NestEgg only has for Taiwan stocks
+- Enter the NT$ amount actually debited, fees included; with foreign-currency settlement, an approximate NT$ amount is fine. A debit day on a weekend or holiday doesn't matter, thanks to the grace period
+- To change the amount, give the plan an end date and add a new one. Ending a plan keeps its past contributions; deleting it removes them
+- Plans are kept in `plans.json` and added up whenever the pet is evaluated, so the ledger only holds your real records. If you also import, type or sync the same contributions, pick one source to avoid counting them twice
 
 #### Fubon Securities auto-sync
 
@@ -333,7 +345,7 @@ This project is not affiliated with any securities firm.
 
 - **拖曳**：搬到你喜歡的位置
 - **點一下**：看牠現在幾天大、多大隻、吃飽了沒
-- **右鍵**：匯入交易紀錄、匯出備份、手動記帳、寵物設定、結束
+- **右鍵**：匯入交易紀錄、匯出備份、手動記帳、定期定額計畫、寵物設定、結束
 
 ### 核心理念：分開「你能控制的」與「市場給的」
 
@@ -406,6 +418,8 @@ This project is not affiliated with any securities firm.
 - 所有資料只存在你電腦上的一個 CSV 檔：
   - macOS：`~/Library/Application Support/NestEgg/ledger.csv`
   - Windows：`%APPDATA%\NestEgg\ledger.csv`
+
+  定期定額計畫（`plans.json`）與寵物設定（`settings.json`）也放在同一個資料夾。
 - 沒有後端伺服器，不收集任何使用者資料
 - 會連網的只有兩件事：
   - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**
@@ -472,6 +486,16 @@ date,symbol,action,shares,amount,fee
 | `fee` | 手續費與稅金 |
 
 Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格式有錯時會告訴你第幾行，不會匯入一半。
+
+#### 定期定額計畫
+
+每月固定日期、固定金額的投入，設定一次就好：右鍵 →「定期定額計畫…」，填標的代號、每月台幣金額、扣款日和開始日期。之後每個月寵物會自動算進這筆投入，不用匯入、也不用手動記帳。
+
+- **複委託買的美股**用這個方式養寵物：富邦、永豐、國泰的 API 都查不到複委託帳戶。台股也可以用
+- 只記投入的金額（股數是 0）。寵物的年齡、飽足、體型只需要這些；心情和毛色要有價格，NestEgg 目前只有台股的價格
+- 金額填每月實際扣款的台幣（含手續費）；外幣交割的話，填大約的台幣金額就好。扣款日遇到週末或假日也沒關係，寵物有寬限
+- 要改金額：在原計畫填上結束日期，再新增一個。填結束日期會保留已經記的投入；刪除計畫則會一起拿掉
+- 計畫存在 `plans.json`，每次計算寵物時才加總，所以帳本裡只有你的真實紀錄。同一筆投入如果也用匯入、手動記帳或券商同步，請擇一來源，以免重複
 
 #### 富邦證券自動同步
 

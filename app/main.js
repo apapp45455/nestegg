@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, screen, shell } from 'electr
 import { existsSync } from 'node:fs'
 import { copyFile, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { HEADER, SETTINGS, evaluate, mergeLedger, parseLedger, parseSettings, removeRows, toCsv } from '../engine/index.js'
+import { HEADER, SETTINGS, evaluate, mergeLedger, parseLedger, parsePlans, parseSettings, planRows, removeRows, toCsv } from '../engine/index.js'
 import { initBrokers, openSetup } from './brokers.js'
 import { getMarket, startMarket } from './market.js'
 import { anchorOf, placeAt } from './placement.js'
@@ -10,7 +10,8 @@ import { anchorOf, placeAt } from './placement.js'
 const W = 200, H = 300
 const LEDGER = join(app.getPath('userData'), 'ledger.csv')
 const SETTINGS_FILE = join(app.getPath('userData'), 'settings.json')
-let win, settingsWin
+const PLANS_FILE = join(app.getPath('userData'), 'plans.json')
+let win, settingsWin, plansWin
 // On quit the window is destroyed first, while timers, mouse events and display changes can still arrive, so always get the window through here
 const pet = () => (win && !win.isDestroyed() ? win : null)
 let anchor = { right: 40, bottom: 0 } // Which corner the pet sticks to and how far from it; bottom-right by default
@@ -32,11 +33,22 @@ const today = () => {
 const readLedger = async () => (existsSync(LEDGER) ? parseLedger(await readFile(LEDGER, 'utf8')) : [])
 // Pet settings: a missing or corrupt file means all defaults (parseSettings replaces individual bad values), so the pet is never affected
 const readSettings = () => readFile(SETTINGS_FILE, 'utf8').then(JSON.parse).catch(() => ({}))
+// Recurring plans: unlike settings, a broken file is an error the pet shows (silently dropping plans would shrink it)
+const readPlans = async () => {
+  if (!existsSync(PLANS_FILE)) return []
+  try {
+    return parsePlans(JSON.parse(await readFile(PLANS_FILE, 'utf8')))
+  } catch (e) {
+    throw new Error(`定期定額計畫讀取失敗：${e.message}`)
+  }
+}
+// What the pet lives on: the ledger plus the contributions the recurring plans add up to by today
+const records = async () => [...(await readLedger()), ...planRows(await readPlans(), today())]
 
 async function refresh() {
   let state
   try {
-    state = evaluate(await readLedger(), today(), getMarket(), await readSettings())
+    state = evaluate(await records(), today(), getMarket(), await readSettings())
   } catch (e) {
     state = { error: e.message }
   }
@@ -118,6 +130,42 @@ ipcMain.handle('settings:set', (_e, input) => {
   return task
 })
 
+// One window for all recurring plans: each change saves the whole list, and the pet updates right away
+export function openPlans() {
+  if (plansWin && !plansWin.isDestroyed()) return plansWin.focus()
+  plansWin = new BrowserWindow({
+    width: 560,
+    height: Math.min(860, screen.getPrimaryDisplay().workArea.height),
+    title: '定期定額計畫',
+    webPreferences: { preload: join(import.meta.dirname, 'preload.cjs') },
+  })
+  plansWin.loadFile(join(import.meta.dirname, 'plans.html'))
+  app.focus({ steal: true })
+}
+
+// Each plan comes back with how many contributions it has recorded so far and their total
+const describePlans = plans => ({
+  today: today(),
+  plans: plans.map(p => {
+    const rows = planRows([p], today())
+    return { ...p, count: rows.length, total: rows.reduce((n, r) => n + r.amount, 0) }
+  }),
+})
+ipcMain.handle('plans:get', async () => describePlans(await readPlans()))
+// Queued like the settings: the window can save twice in quick succession
+let savingPlans = Promise.resolve()
+ipcMain.handle('plans:set', (_e, input) => {
+  const task = savingPlans.then(async () => {
+    const plans = parsePlans(input) // Throws with the problem, which the window shows; nothing is saved
+    await writeFile(`${PLANS_FILE}.tmp`, JSON.stringify(plans, null, 2))
+    await rename(`${PLANS_FILE}.tmp`, PLANS_FILE)
+    await refresh()
+    return describePlans(plans)
+  })
+  savingPlans = task.catch(() => {})
+  return task
+})
+
 async function showLedger() {
   if (!existsSync(LEDGER)) await writeFile(LEDGER, `${HEADER}\n`)
   shell.showItemInFolder(LEDGER)
@@ -128,6 +176,7 @@ const actions = [
   { label: '匯出備份…', click: exportBackup },
   { label: '在資料夾中顯示帳本（手動記帳）', click: showLedger },
   { label: '證券帳戶同步…', click: openSetup },
+  { label: '定期定額計畫…', click: openPlans },
   { label: '寵物設定…', click: openSettings },
 ]
 const menu = Menu.buildFromTemplate([...actions, { type: 'separator' }, { label: '結束 NestEgg', role: 'quit' }])
@@ -154,7 +203,7 @@ app.whenReady().then(() => {
   setInterval(refresh, 10_000)
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, place)
   initBrokers({ today, readLedger, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
-  startMarket({ symbols: async () => (await readLedger().catch(() => [])).map(r => r.symbol), onUpdate: refresh })
+  startMarket({ symbols: async () => (await records().catch(() => [])).map(r => r.symbol), onUpdate: refresh })
 })
 
 // Clicking the Dock or taskbar icon makes the pet show a status bubble, so it's easy to find

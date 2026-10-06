@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HEADER, parseLedger, parseSettings, mergeLedger, removeRows, toCsv, evaluate } from './index.js'
+import { HEADER, parseLedger, parsePlans, parseSettings, mergeLedger, planRows, removeRows, toCsv, evaluate } from './index.js'
 
 const buy = (date, amount, shares = 100, symbol = '0050') => ({ date, symbol, action: 'buy', shares, amount, fee: 0 })
 
@@ -121,4 +121,45 @@ test('settings: 體型門檻可以調（萬元）；沒有一級比一級高就�
   assert.equal(evaluate([buy('2026-01-01', 1_400)], '2026-02-01', null, { lv2: 0.14 }).size, 2) // Levels up at exactly 0.14 (0.14 × 10,000 has a floating-point error)
   const broken = parseSettings({ lv2: 50, mood: 2 }) // Lv2 higher than Lv3 (default 10)
   assert.deepEqual([broken.lv2, broken.lv3, broken.mood], [3, 10, 2]) // Other settings are unaffected
+})
+
+test('planRows: one buy a month on the plan day, from the start date to today or the end date', () => {
+  const vt = { symbol: 'VOO', amount: 10_000, day: 6, start: '2026-01-10', end: null }
+  // Starts after the 6th in January, so the first month is February
+  assert.deepEqual(planRows([vt], '2026-04-05').map(r => r.date), ['2026-02-06', '2026-03-06'])
+  assert.deepEqual(planRows([vt], '2026-04-06').at(-1), { date: '2026-04-06', symbol: 'VOO', action: 'buy', shares: 0, amount: 10_000, fee: 0 })
+  assert.deepEqual(planRows([{ ...vt, end: '2026-03-31' }], '2026-12-31').map(r => r.date), ['2026-02-06', '2026-03-06'])
+  // Day 31 falls on the last day of shorter months, across a year end
+  const late = { ...vt, day: 31, start: '2025-11-01' }
+  assert.deepEqual(planRows([late], '2026-03-01').map(r => r.date), ['2025-11-30', '2025-12-31', '2026-01-31', '2026-02-28'])
+  assert.deepEqual(planRows([vt], '2025-12-31'), []) // Not started yet
+  assert.deepEqual(parseLedger(toCsv(planRows([vt], '2026-04-06'))), planRows([vt], '2026-04-06'))
+})
+
+test('planRows: the pet counts plan contributions like any other buy', () => {
+  const plan = { symbol: 'VOO', amount: 10_000, day: 6, start: '2025-01-01', end: null }
+  const pet = evaluate(planRows([plan], '2026-01-10'), '2026-01-10')
+  assert.deepEqual([pet.stage, pet.size, pet.satiety], ['adult', 3, 3]) // 13 months × 10,000 = 130,000
+})
+
+test('planRows: plan money on a symbol with recorded shares changes neither the fur nor what a sell removes', () => {
+  const plan = { symbol: '0050', amount: 10_000, day: 6, start: '2025-01-01', end: null }
+  const ledger = [{ date: '2025-01-02', symbol: '0050', action: 'buy', shares: 100, amount: 10_000, fee: 0 }, ...planRows([plan], '2026-01-10')]
+  const market = { date: '2026-01-10', indexChange: 0, prices: { '0050': { close: 100, change: 0 } } }
+  const pet = evaluate(ledger, '2026-01-10', market)
+  assert.deepEqual([pet.fur, pet.size], ['normal', 3]) // 100 shares worth what they cost; 140,000 principal
+  const sold = [...ledger, { date: '2026-01-08', symbol: '0050', action: 'sell', shares: 100, amount: 10_000, fee: 0 }]
+  assert.equal(evaluate(sold, '2026-01-10').size, 3) // 130,000 of plan money is left
+})
+
+test('parsePlans: normalizes good plans and names the problem in a bad one', () => {
+  assert.deepEqual(parsePlans([{ symbol: ' voo ', amount: '10000', day: '6', start: '2026-01-06', end: '' }]), [
+    { symbol: 'VOO', amount: 10_000, day: 6, start: '2026-01-06', end: null },
+  ])
+  const good = { symbol: '0050', amount: 5000, day: 16, start: '2026-01-16' }
+  assert.throws(() => parsePlans([good, { ...good, amount: 0 }]), /第 2 個計畫：每月金額/)
+  assert.throws(() => parsePlans([{ ...good, day: 32 }]), /扣款日/)
+  assert.throws(() => parsePlans([{ ...good, symbol: '' }]), /標的代號/)
+  assert.throws(() => parsePlans([{ ...good, end: '2025-12-31' }]), /結束日期/)
+  assert.throws(() => parsePlans({}), /格式不對/)
 })
