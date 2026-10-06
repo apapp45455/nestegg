@@ -21,13 +21,33 @@ writeFileSync(join(DATA, 'market.json'), JSON.stringify({
   us: { date: '2026-10-02', indexChange: -0.5, fx: 32, prices: { VOO: { close: 110, change: -0.55 } }, etfs: ['VOO'] },
   history: { VOO: { from: '2000-01-03', closes: [['2000-01-03', 200]] } },
 }))
-// No network: anything that isn't one of the local fake servers is recorded and fails as if offline (checked at the end)
-const outside = []
+// No network: the market sources are answered by fakes (net.gate holds the TWSE answers, net.nasdaqDown fails Nasdaq),
+// anything else outside the local fake servers is recorded in net.unexpected and fails as if offline (checked at the end)
+const net = { requests: [], unexpected: [], gate: null, nasdaqDown: false, twDate: '1151005' }
+const FAKE_NET = {
+  'openapi.twse.com.tw/v1/exchangeReport/MI_INDEX': () => [{ 日期: net.twDate, 指數: '發行量加權股價指數', 漲跌: '+', 漲跌百分比: '1.20' }],
+  'openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL': () => [{ Code: '0050', ClosingPrice: '112.00', Change: '2.0000' }],
+  'www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes': () => [],
+  'api.nasdaq.com/api/screener/stocks': () => ({ data: { rows: [] } }),
+  'api.nasdaq.com/api/screener/etf': () => ({
+    data: { dataAsOf: '10/5/2026 8:00:00 PM', data: { rows: ['VOO', 'QQQ', 'VTI', 'SPY'].map(symbol => ({ symbol, lastSalePrice: '$110.00', netChange: '-0.55' })) } },
+  }),
+  'openapi.taifex.com.tw/v1/DailyForeignExchangeRates': () => [{ Date: '20261005', 'USD/NTD': '32.000' }],
+  'api.nasdaq.com/api/quote/': () => ({ data: { tradesTable: { rows: [{ date: '10/05/2026', close: '110.00' }] } } }),
+}
 const localFetch = globalThis.fetch
-globalThis.fetch = (url, options) => {
-  if (/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(String(url))) return localFetch(url, options)
-  outside.push(String(url))
-  return Promise.reject(new Error('e2e 不連網'))
+globalThis.fetch = async (url, options) => {
+  const u = String(url)
+  if (/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(u)) return localFetch(url, options)
+  const fake = Object.keys(FAKE_NET).find(key => u.startsWith(`https://${key}`))
+  if (!fake) {
+    net.unexpected.push(u)
+    throw new Error('e2e 不連網')
+  }
+  net.requests.push(u)
+  if (u.includes('twse') && net.gate) await net.gate
+  if (u.includes('nasdaq') && net.nasdaqDown) throw new Error('Nasdaq 暫時擋掉（假的）')
+  return new Response(JSON.stringify(FAKE_NET[fake]()), { headers: { 'Content-Type': 'application/json' } })
 }
 // Put the fake Fubon SDK straight into the installed location (the install flow opens a file dialog; it's stubbed in its own test)
 mkdirSync(SDK, { recursive: true })
@@ -537,6 +557,45 @@ async function runAll() {
     await until('state.indexName', v => v === '加權', '沒有美股後改回加權')
   })
 
+  await test('行情：下載中又改了持股，下載完會再補抓；美股來源掛掉時台股照樣更新，也不會每次存檔都重抓', async () => {
+    const cache = () => JSON.parse(readFileSync(join(DATA, 'market.json'), 'utf8'))
+    const waitFor = async (ok, label) => {
+      for (const end = Date.now() + 15_000; Date.now() < end; await wait(100)) if (ok()) return
+      throw new Error(`等不到：${label}`)
+    }
+    const history = symbol => net.requests.filter(u => u.includes(`/quote/${symbol}/historical`)).length
+    const plan = symbol => ({ symbol, amount: 30000, day: 1, start: '2026-01-01' })
+    await page('window.petSettings.set({ usHistory: true })', win())
+    // A new plan on QQQ needs its closes: the download starts, and the TWSE answers are held
+    let release
+    net.gate = new Promise(resolve => { release = resolve })
+    await page(`window.plans.set([${JSON.stringify(plan('QQQ'))}])`, win())
+    await waitFor(() => net.requests.some(u => u.includes('MI_INDEX')), '開始下載')
+    // VTI is added while that download is running: it read the holdings before VTI existed
+    await page(`window.plans.set([${JSON.stringify(plan('QQQ'))}, ${JSON.stringify(plan('VTI'))}])`, win())
+    net.gate = null
+    release()
+    await waitFor(() => cache().history?.VTI, 'VTI 的歷史價格')
+    assert.deepEqual([history('QQQ') >= 1, history('VTI')], [true, 1])
+
+    // Nasdaq goes down when SPY is added: the Taiwan prices (a new trading day) are still saved, the US data is kept
+    net.nasdaqDown = true
+    net.twDate = '1151006'
+    await page(`window.plans.set(${JSON.stringify(['QQQ', 'VTI', 'SPY'].map(plan))})`, win())
+    await waitFor(() => cache().date === '2026-10-06', '台股照樣更新')
+    assert.ok(cache().usFailedAt)
+    assert.deepEqual([cache().us.date, Object.keys(cache().history).sort()], ['2026-10-05', ['QQQ', 'VTI']])
+    // Until the next regular refresh, saving again doesn't download everything again
+    const before = net.requests.length
+    await page(`window.plans.set(${JSON.stringify(['QQQ', 'VTI', 'SPY'].map(plan))})`, win())
+    await wait(500)
+    assert.equal(net.requests.length, before)
+
+    net.nasdaqDown = false
+    await page('window.plans.set([])', win())
+    await page('window.petSettings.set({})', win())
+  })
+
   await test('畫面：寵物真的有畫出來', async () => {
     const painted = await page(`(() => {
       const d = pet.getContext('2d').getImageData(0, 0, 16, 16).data
@@ -645,8 +704,8 @@ async function runAll() {
     assert.deepEqual(crashes, [])
   })
 
-  await test('整個過程沒有連到外網（行情都用預先放好的資料）', () => {
-    assert.deepEqual(outside, [])
+  await test('整個過程沒有連到外網（行情都用預先放好的資料或假的來源）', () => {
+    assert.deepEqual(net.unexpected, [])
   })
 
   const failed = results.filter(ok => !ok).length
