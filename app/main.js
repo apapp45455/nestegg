@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, screen, shell } from 'electr
 import { existsSync } from 'node:fs'
 import { copyFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { HEADER, SETTINGS, evaluate, mergeLedger, parseLedger, parsePlans, parseSettings, planRows, removeRows, toCsv } from '../engine/index.js'
+import { HEADER, SETTINGS, evaluate, mergeLedger, parseLedger, parsePlanFile, parseSettings, planRows, removeRows, sellRows, toCsv } from '../engine/index.js'
 import { initBrokers, openSetup } from './brokers.js'
 import { writeAtomic } from './files.js'
 import { getMarket, startMarket, updateMarket } from './market.js'
@@ -34,17 +34,21 @@ const today = () => {
 const readLedger = async () => (existsSync(LEDGER) ? parseLedger(await readFile(LEDGER, 'utf8')) : [])
 // Pet settings: a missing or corrupt file means all defaults (parseSettings replaces individual bad values), so the pet is never affected
 const readSettings = () => readFile(SETTINGS_FILE, 'utf8').then(JSON.parse).catch(() => ({}))
-// Recurring plans: unlike settings, a broken file is an error the pet shows (silently dropping plans would shrink it)
+// Recurring plans and the sells of what they bought: unlike settings, a broken file is an error the pet shows (silently
+// dropping plans would shrink it)
 const readPlans = async () => {
-  if (!existsSync(PLANS_FILE)) return []
+  if (!existsSync(PLANS_FILE)) return { plans: [], sells: [] }
   try {
-    return parsePlans(JSON.parse(await readFile(PLANS_FILE, 'utf8')))
+    return parsePlanFile(JSON.parse(await readFile(PLANS_FILE, 'utf8')))
   } catch (e) {
     throw new Error(`定期定額計畫讀取失敗：${e.message}`)
   }
 }
-// What the pet lives on: the ledger plus the contributions the recurring plans add up to by today
-const records = async () => [...(await readLedger()), ...planRows(await readPlans(), today())]
+// What the pet lives on: the ledger plus the contributions the recurring plans add up to by today, and their sells
+const records = async () => {
+  const { plans, sells } = await readPlans()
+  return [...(await readLedger()), ...planRows(plans, today()), ...sellRows(sells, today())]
+}
 
 async function refresh() {
   let state
@@ -144,23 +148,24 @@ export function openPlans() {
 }
 
 // Each plan comes back with how many contributions it has recorded so far and their total
-const describePlans = plans => ({
+const describePlans = ({ plans, sells }) => ({
   today: today(),
   plans: plans.map(p => {
     const rows = planRows([p], today())
     return { ...p, count: rows.length, total: rows.reduce((n, r) => n + r.amount, 0) }
   }),
+  sells,
 })
 ipcMain.handle('plans:get', async () => describePlans(await readPlans()))
 // Queued like the settings: the window can save twice in quick succession
 let savingPlans = Promise.resolve()
 ipcMain.handle('plans:set', (_e, input) => {
   const task = savingPlans.then(async () => {
-    const plans = parsePlans(input) // Throws with the problem, which the window shows; nothing is saved
-    await writeAtomic(PLANS_FILE, JSON.stringify(plans, null, 2))
+    const file = parsePlanFile(input) // Throws with the problem, which the window shows; nothing is saved
+    await writeAtomic(PLANS_FILE, JSON.stringify(file, null, 2))
     await refresh()
     updateMarket() // A plan on a new US ticker gets its prices now
-    return describePlans(plans)
+    return describePlans(file)
   })
   savingPlans = task.catch(() => {})
   return task

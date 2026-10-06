@@ -14,6 +14,8 @@
     fieldset { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px 16px 14px; margin: 0; display: grid; gap: 12px; }
     legend { font-weight: 700; padding: 0 4px; }
     .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    h2 { font-size: 16px; margin: 28px 0 4px; }
+    #sell { margin-top: 12px; }
   </style>
 </head>
 <body>
@@ -47,6 +49,31 @@
     </fieldset>
   </form>
   <p id="result" role="status"></p>
+
+  <h2>賣出</h2>
+  <p class="note">定期定額買的股票賣出時記在這裡（同一檔就不要再記到帳本）。計畫只記金額、不知道你有幾股，所以請照券商 App 的庫存填「賣出前持有股數」，寵物會按比例扣掉這一檔的本金，包含你單筆買的部分。</p>
+  <ul id="sells" class="plans"></ul>
+  <form id="sell">
+    <fieldset>
+      <legend>記一筆賣出</legend>
+      <div class="two">
+        <label>標的代號
+          <input name="symbol" list="symbols" placeholder="VOO" autocomplete="off" spellcheck="false" autocapitalize="characters" required>
+        </label>
+        <label>賣出日期
+          <input name="date" type="date" required>
+        </label>
+        <label>賣出股數
+          <input name="shares" type="number" inputmode="decimal" min="0" step="any" required>
+        </label>
+        <label>賣出前持有股數
+          <input name="held" type="number" inputmode="decimal" min="0" step="any" required>
+        </label>
+      </div>
+      <div><button type="submit" class="primary">記下賣出</button></div>
+    </fieldset>
+  </form>
+  <datalist id="symbols"></datalist>
 
   <footer class="note">
     <p>金額填每月實際扣款的台幣（含手續費）。用外幣交割的話，填大約的台幣金額就好。扣款日遇到假日也沒關係，寵物有寬限。</p>

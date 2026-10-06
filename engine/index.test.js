@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HEADER, parseLedger, parsePlans, parseSettings, mergeLedger, planRows, removeRows, toCsv, evaluate } from './index.js'
+import { HEADER, parseLedger, parsePlanFile, parsePlans, parseSells, parseSettings, mergeLedger, planRows, removeRows, sellRows, toCsv, evaluate } from './index.js'
 
 const buy = (date, amount, shares = 100, symbol = '0050') => ({ date, symbol, action: 'buy', shares, amount, fee: 0 })
 
@@ -180,6 +180,49 @@ test('planRows: plan money on a symbol with recorded shares changes neither the 
   assert.deepEqual([pet.fur, pet.size], ['normal', 3]) // 100 shares worth what they cost; 140,000 principal
   const sold = [...ledger, { date: '2026-01-08', symbol: '0050', action: 'sell', shares: 100, amount: 10_000, fee: 0 }]
   assert.equal(evaluate(sold, '2026-01-10').size, 3) // 130,000 of plan money is left
+})
+
+test('sells: selling part of a plan holding removes that fraction of its principal, recorded shares included', () => {
+  const plan = { symbol: 'VOO', amount: 10_000, day: 6, start: '2026-01-06', end: null }
+  const ledger = [buy('2026-01-02', 20_000, 2, 'VOO'), ...planRows([plan], '2026-04-10')] // 20,000 + 4 × 10,000
+  assert.equal(evaluate(ledger, '2026-04-10').size, 2) // NT$60,000
+  const sell = { symbol: 'VOO', date: '2026-04-08', shares: 3, held: 4 } // 3 of 4 shares: three quarters go
+  const sold = [...ledger, ...sellRows([sell], '2026-04-10')]
+  assert.equal(evaluate(sold, '2026-04-10').size, 1) // NT$15,000
+  assert.equal(evaluate(sold, '2026-04-10').age, evaluate(ledger, '2026-04-10').age) // Selling never changes age
+  assert.deepEqual(sellRows([sell], '2026-04-07'), []) // Not sold yet
+})
+
+test('sells: with usHistory the plan money left keeps its gain, and money sold out no longer counts', () => {
+  const plan = { symbol: 'VOO', amount: 10_000, day: 6, start: '2026-07-06', end: null }
+  const market = {
+    date: '2026-10-02', indexChange: 0, prices: {},
+    us: { date: '2026-10-02', indexChange: 0, fx: 32, prices: { VOO: { close: 105, change: 0 } } },
+    history: { VOO: { from: '2026-07-06', closes: [['2026-07-06', 100], ['2026-08-06', 100], ['2026-09-08', 100]] } },
+  }
+  const ledger = planRows([plan], '2026-10-03') // +5%: shiny at a 4% threshold, normal at 6%
+  const sold = [...ledger, ...sellRows([{ symbol: 'VOO', date: '2026-10-01', shares: 1, held: 2 }], '2026-10-03')]
+  for (const fur of [4, 6]) {
+    assert.equal(evaluate(sold, '2026-10-03', market, { usHistory: true, fur }).fur, evaluate(ledger, '2026-10-03', market, { usHistory: true, fur }).fur)
+  }
+  assert.equal(evaluate(sold, '2026-10-03', market, { usHistory: true, fur: 4 }).fur, 'shiny')
+  // Sold out, next to 0050 at cost: VOO's +5% no longer counts, so the fur is 0050's flat 0%
+  const withTw = { ...market, prices: { '0050': { close: 100, change: 0 } } }
+  const all = [buy('2026-01-02', 10_000, 100), ...ledger, ...sellRows([{ symbol: 'VOO', date: '2026-10-01', shares: 2, held: 2 }], '2026-10-03')]
+  assert.equal(evaluate(all, '2026-10-03', withTw, { usHistory: true, fur: 3 }).fur, 'normal')
+})
+
+test('parsePlanFile: reads the old plans-only array and the file with sells; parseSells names the problem', () => {
+  const plan = { symbol: 'VOO', amount: 10_000, day: 6, start: '2026-01-06', end: null }
+  assert.deepEqual(parsePlanFile([plan]), { plans: [plan], sells: [] })
+  const sell = { symbol: ' voo ', date: '2026-04-08', shares: '1.5', held: '10' }
+  assert.deepEqual(parsePlanFile({ plans: [plan], sells: [sell] }).sells, [{ symbol: 'VOO', date: '2026-04-08', shares: 1.5, held: 10 }])
+  assert.throws(() => parsePlanFile('壞掉'), /格式不對/)
+  const good = { symbol: 'VOO', date: '2026-04-08', shares: 2, held: 5 }
+  assert.throws(() => parseSells([good, { ...good, shares: 0 }]), /第 2 筆賣出：賣出股數/)
+  assert.throws(() => parseSells([{ ...good, held: 1 }]), /持有股數不能比賣出股數少/)
+  assert.throws(() => parseSells([{ ...good, date: '2026-02-30' }]), /賣出日期/)
+  assert.throws(() => parseSells({}), /格式不對/)
 })
 
 test('parsePlans: normalizes good plans and names the problem in a bad one', () => {

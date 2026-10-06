@@ -102,7 +102,7 @@ After a while, the pet evolves into a different form based on your behavior. **N
   - macOS: `~/Library/Application Support/NestEgg/ledger.csv`
   - Windows: `%APPDATA%\NestEgg\ledger.csv`
 
-  Recurring plans (`plans.json`) and pet settings (`settings.json`) are kept in the same folder.
+  Recurring plans and their sells (`plans.json`) and pet settings (`settings.json`) are kept in the same folder.
 - There is no backend server, and no user data is collected
 - Only two things go online:
   - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours; with US holdings, also Nasdaq's tables of every US stock and ETF and TAIFEX's exchange rates. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**. The one exception is opt-in: with "逐檔查美股歷史價格" (Look up US price history) on, the US tickers in your recurring plans are looked up one by one (see US stocks above)
@@ -178,6 +178,7 @@ If you invest the same amount on the same day every month, set it up once: right
 - Only the money is recorded (shares are 0). That's all the pet needs for age, fullness and size, and it moves the mood with the day's prices. For US tickers the fur can count it too, with US price history turned on (see US stocks above)
 - Enter the NT$ amount actually debited, fees included; with foreign-currency settlement, an approximate NT$ amount is fine. A debit day on a weekend or holiday doesn't matter, thanks to the grace period
 - To change the amount, give the plan an end date and add a new one. Ending a plan keeps its past contributions; deleting it removes them
+- To sell shares a plan bought, record the sale in the same window (not in the ledger): the shares sold and the shares you held right before, both shown on your broker's holdings page. Plans record no shares, so that fraction of the symbol's principal is removed, single buys of the same symbol included, which is the average-cost rule
 - Plans are kept in `plans.json` and added up whenever the pet is evaluated, so the ledger only holds your real records. If you also import, type or sync the same contributions, pick one source to avoid counting them twice
 
 #### Fubon Securities auto-sync
@@ -427,7 +428,7 @@ This project is not affiliated with any securities firm.
   - macOS：`~/Library/Application Support/NestEgg/ledger.csv`
   - Windows：`%APPDATA%\NestEgg\ledger.csv`
 
-  定期定額計畫（`plans.json`）與寵物設定（`settings.json`）也放在同一個資料夾。
+  定期定額計畫與它的賣出紀錄（`plans.json`）、寵物設定（`settings.json`）也放在同一個資料夾。
 - 沒有後端伺服器，不收集任何使用者資料
 - 會連網的只有兩件事：
   - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次；有美股的話，也下載 Nasdaq 的全部美股與 ETF 價格表和期交所的匯率。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**。唯一的例外要你自己打開：開啟「逐檔查美股歷史價格」後，定期定額計畫裡的美股代號會一檔一檔查（見上方「美股」）
@@ -503,6 +504,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 - 只記投入的金額（股數是 0）。寵物的年齡、飽足、體型只需要這些，心情也會跟著當天的漲跌變。美股打開「逐檔查美股歷史價格」後，毛色也會算進去（見上方「美股」）
 - 金額填每月實際扣款的台幣（含手續費）；外幣交割的話，填大約的台幣金額就好。扣款日遇到週末或假日也沒關係，寵物有寬限
 - 要改金額：在原計畫填上結束日期，再新增一個。填結束日期會保留已經記的投入；刪除計畫則會一起拿掉
+- 賣出定期定額買的股票，在同一個視窗記一筆賣出（不要記到帳本）：填賣出股數和賣出前的持有股數，券商 App 的庫存頁都看得到。計畫不記股數，所以寵物會按這個比例扣掉這一檔的本金，包含同一檔單筆買的部分，也就是平均成本法
 - 計畫存在 `plans.json`，每次計算寵物時才加總，所以帳本裡只有你的真實紀錄。同一筆投入如果也用匯入、手動記帳或券商同步，請擇一來源，以免重複
 
 #### 富邦證券自動同步
