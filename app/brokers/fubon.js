@@ -1,14 +1,20 @@
-// Fubon Securities (next-generation API): SDK install checks, form fields and the trade history query. The shared flow lives in ../brokers.js.
+// Fubon Securities (next-generation API): SDK install checks, form fields and the sync. The shared flow lives in ../brokers.js.
+// Every sync reconciles the current holdings (needs only the 證券業務 permission). Importing the past trade history needs
+// the 證券下單 order permission, so it uses a separate key that is entered once when connecting and never saved.
 import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { dateWindows, fillsToRows } from '../../sync/fubon.js'
+import { holdings, mergeLedger } from '../../engine/index.js'
+import { dateWindows, fillsToRows, positionsOf, reconcile } from '../../sync/fubon.js'
 
 const MIN_SDK = '2.2.7' // apikeyLogin first appeared in this version
+const WORKER = join(import.meta.dirname, 'fubon-worker.cjs')
+const needsUser = message => Object.assign(new Error(message), { needsUser: true })
 
 export default {
   id: 'fubon',
   name: '富邦證券',
+  snapshot: true, // each sync returns every row it owns: the previous ones plus what changed (see reconcile in sync/fubon.js)
   sdk: {
     label: '富邦 Node.js SDK',
     version: async dir => (existsSync(join(dir, 'trade.js')) ? JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')).version : null),
@@ -40,14 +46,40 @@ export default {
     if (!existsSync(creds.certPath)) throw new Error('找不到憑證檔，請重新選擇')
     return creds
   },
+  // The optional history key: used for this one connection, never saved
+  connectOnly: form => ({ historyKey: String(form.historyKey ?? '').trim() }),
 
   // Every SDK call is synchronous (construction alone takes a second), so it runs in a separate utility process to keep the pet responsive
-  async fetch({ creds, from, to, sdkDir, runWorker }) {
-    const res = await runWorker(join(import.meta.dirname, 'fubon-worker.cjs'), { sdkDir, ...creds, windows: dateWindows(from, to) })
-    if (/連線測試成功/.test(res.error ?? '')) throw new Error('富邦回覆連線測試成功，API 權限會在簽署隔天 9:00 前開通，到時候再按一次「連線並同步」。')
-    if (res.loginFailed) throw Object.assign(new Error(res.error), { needsUser: true }) // Login failed: pause auto sync so the account doesn't get locked
-    if (res.error) throw new Error(res.error)
-    if (!res.fills.length && res.errors.length) throw new Error(`查詢成交紀錄失敗：${res.errors[0]}`)
-    return { rows: fillsToRows(res.fills), accounts: res.accounts, warnings: res.errors }
+  async fetch({ creds, from, to, sdkDir, runWorker, previous, connectOnly, manual }) {
+    const run = async (apiKey, payload) => {
+      const res = await runWorker(WORKER, { sdkDir, ...creds, apiKey, ...payload })
+      if (/連線測試成功/.test(res.error ?? '')) throw new Error('富邦回覆連線測試成功，API 權限會在簽署隔天 9:00 前開通，到時候再按一次「連線並同步」。')
+      if (res.loginFailed) throw needsUser(res.error) // Login failed: pause auto sync so the account doesn't get locked
+      if (res.error) throw new Error(res.error)
+      return res
+    }
+
+    let owned = previous, warnings = []
+    if (connectOnly?.historyKey) {
+      const res = await run(connectOnly.historyKey, { history: dateWindows(from, to) }).catch(e => {
+        throw Object.assign(e, { message: `歷史匯入用的 API Key：${e.message}` })
+      })
+      if (res.unauthorized) throw new Error('歷史匯入用的 API Key 沒有「證券下單」權限，查不到過去的成交紀錄。請確認這把金鑰有勾「證券下單」，或把這一欄留空，只同步之後的變化')
+      if (!res.fills.length && res.errors.length) throw new Error(`查詢成交紀錄失敗：${res.errors[0]}`)
+      owned = mergeLedger(previous, fillsToRows(res.fills)) // Re-importing the same history adds nothing
+      warnings = res.errors
+    }
+
+    const res = await run(creds.apiKey, {})
+    if (res.unauthorized) throw needsUser('這把 API Key 沒有「證券業務」權限，查不到持股。請到富邦的金鑰管理頁確認有勾「證券業務」')
+    // A partial list would look like sells, so any failed account stops the sync
+    if (res.errors.length) throw new Error(`查詢持股失敗：${res.errors[0]}`)
+    const positions = positionsOf(res.assets)
+    // No holdings at all, but some were recorded: maybe a temporary empty answer (maintenance), maybe everything was
+    // sold. Auto sync doesn't guess; it stops and asks the user to confirm
+    if (!manual && !Object.keys(positions).length && [...holdings(owned, to).values()].some(h => h.shares > 0)) {
+      throw needsUser('富邦這次沒有回傳任何持股，先不更新帳本。如果你已經全部賣出，請按「立即同步」確認')
+    }
+    return { rows: [...owned, ...reconcile(positions, owned, to)], accounts: res.accounts, warnings }
   },
 }

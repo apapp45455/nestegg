@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
-import { addDays, isDate } from '../engine/index.js'
+import { addDays, isDate, removeRows } from '../engine/index.js'
 import fubon from './brokers/fubon.js'
 import sinopac from './brokers/sinopac.js'
 
@@ -80,22 +80,30 @@ function runWorker(file, payload, cwd) {
 }
 
 // manual: started by the user (connect, sync now); counts as confirmation when a snapshot comes back empty
-async function sync(b, creds, from, manual = false) {
+// connectOnly: values the adapter needs only while connecting (for example Fubon's one-time history key); never saved
+async function sync(b, creds, from, manual = false, connectOnly) {
   await mkdir(home(b), { recursive: true })
+  // Snapshot brokers return every row they own each time, which replaces the batch the last sync wrote. They also get
+  // that batch (`previous`) to work out what changed. If rows.json can't be read, stop and leave the ledger alone:
+  // guessing the previous batch wrong would double-count principal
+  const previous = b.snapshot
+    ? await readJson(rowsFile(b), []).catch(() => {
+      throw needsUser(`${b.name}的同步紀錄檔損壞，為了不重複記帳先停止同步。請刪除 NestEgg 資料夾裡的 ${b.id}/rows.json，再檢查帳本有沒有重複的紀錄`)
+    })
+    : []
+  // What the sync owns is what's in both rows.json and the ledger: after a crash between the two rows.json writes below,
+  // the file holds the old and new batches together while the ledger holds only one of them
+  const owned = b.snapshot ? removeRows(previous, removeRows(previous, await ctx.readLedger())) : []
+  const secrets = [...Object.values(creds), ...Object.values(connectOnly ?? {})]
   const { rows: fresh, accounts, warnings, skipped = [] } = await b.fetch({
-    creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b),
+    creds, from, to: ctx.today(), home: home(b), sdkDir: sdkDir(b), previous: owned, connectOnly, manual,
     runWorker: (file, payload) => runWorker(file, payload, home(b)),
   }).catch(e => {
     // The stack also carries the original message (failed auto syncs console.error the whole error); rethrow non-Errors untouched so masking never throws a new error
-    if (e instanceof Error) Object.assign(e, { message: redact(e.message, Object.values(creds)), stack: e.stack && redact(e.stack, Object.values(creds)) })
+    if (e instanceof Error) Object.assign(e, { message: redact(e.message, secrets), stack: e.stack && redact(e.stack, secrets) })
     throw e
   })
   if (!b.snapshot) return { added: (await ctx.onRows(fresh)).added, accounts, warnings }
-  // Snapshot brokers (only current positions and realized P&L are available) return the full history since `since` every time: replace the batch the last sync wrote.
-  // If rows.json can't be read, stop and leave the ledger alone: snapshot numbers change, and guessing the previous batch wrong would double-count principal
-  const previous = await readJson(rowsFile(b), []).catch(() => {
-    throw needsUser(`${b.name}的同步紀錄檔損壞，為了不重複記帳先停止同步。請刪除 NestEgg 資料夾裡的 ${b.id}/rows.json，再檢查帳本有沒有重複的紀錄`)
-  })
   // Stocks with incomplete data this time (reported in `skipped`): keep the previous batch instead, so missing data doesn't make buys vanish from the ledger
   const rows = [...fresh.filter(r => !skipped.includes(r.symbol)), ...previous.filter(r => skipped.includes(r.symbol))]
   // Nothing came back this time but something did last time: the broker may be returning empty data (maintenance), or everything was really sold. Auto sync doesn't guess; it stops and asks the user to confirm
@@ -169,6 +177,7 @@ async function autoSync() {
 async function connect(id, form) {
   const b = broker(id)
   const creds = b.credentials(form)
+  const connectOnly = b.connectOnly?.(form) // used for this connection only; never saved
   const since = String(form.since ?? '')
   if (!isDate(since) || since > ctx.today()) throw new Error('請選擇今天以前的起始日期') // Also rejects dates like 2025-02-31
   if (!(await sdkVersion(b))) throw new Error(`請先安裝${b.sdk.label}`)
@@ -176,7 +185,7 @@ async function connect(id, form) {
   // Can't share a running auto sync: it would return results for the old keys, and the newly entered keys would never be saved
   idle(id, '正在同步中，請等一下再按「連線並同步」')
   return exclusive(id, 'sync', async () => {
-    const result = await sync(b, creds, since, true) // Only save the keys after login and the query succeed
+    const result = await sync(b, creds, since, true, connectOnly) // Only save the keys after login and the query succeed
     await writeConfig(b, { secret: await seal(creds), since, lastSync: ctx.today() })
     return result
   })

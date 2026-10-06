@@ -1,5 +1,8 @@
 // Fake Fubon SDK for end-to-end tests: same interface as CoreSdk in the real trade.js, but offline and returning fixed trade records.
 // Tests can put files in this folder: fail-login simulates a login failure, hold-login holds login (simulating a sync in progress), fail-logout makes logout throw, and fail-query makes queries throw (simulating a dropped connection).
+// Permissions follow the API key's name, like the real 證券下單 / 證券業務 checkboxes: only keys containing "history" may query
+// the trade history, and keys containing "no-accounting" may not query holdings. positions.json overrides the holdings,
+// and every login's key is appended to logins.txt.
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -12,6 +15,15 @@ const FILLS = [
   ['2026/08/06', 'Buy', 'Stock', 130, 73.8], ['2026/09/07', 'Buy', 'Stock', 129, 74.4],
 ].map(([date, buySell, orderType, filledQty, filledPrice]) => ({ date, stockNo: '0050', buySell, orderType, filledQty, filledPrice }))
 
+// Holdings that match FILLS: the cash shares at the same rounded cost the ledger rows get, plus the margin position
+const cash = FILLS.filter(f => f.orderType === 'Stock')
+const shares = cash.reduce((n, f) => n + f.filledQty, 0)
+const HOLDINGS = [
+  { stockNo: '0050', orderType: 'Stock', todayQty: shares, costPrice: cash.reduce((n, f) => n + Math.round(f.filledPrice * f.filledQty), 0) / shares },
+  { stockNo: '0050', orderType: 'Margin', todayQty: 1000, costPrice: 70 },
+]
+const DENIED = { isSuccess: false, message: '此 API KEY 未授權該功能' } // what the real API answers
+
 class CoreSdk {
   constructor(version) { this.version = version }
   apikeyLogin(id, apiKey, certPath) {
@@ -22,6 +34,8 @@ class CoreSdk {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
       }
     }
+    fs.appendFileSync(path.join(__dirname, 'logins.txt'), `${apiKey}\n`)
+    this.apiKey = apiKey
     if (fs.existsSync(path.join(__dirname, 'fail-login'))) return { isSuccess: false, message: 'API Key 無效（假的）' }
     if (!fs.existsSync(certPath)) return { isSuccess: false, message: '找不到憑證' }
     return { isSuccess: true, data: [
@@ -34,7 +48,18 @@ class CoreSdk {
     return {
       filledHistory: (_account, from, to) => {
         if (fs.existsSync(path.join(__dirname, 'fail-query'))) throw new Error('連線中斷（假的）')
+        if (!this.apiKey.includes('history')) return DENIED
         return { isSuccess: true, data: FILLS.filter(f => key(f.date) >= from && key(f.date) <= to) }
+      },
+    }
+  }
+  get accounting() {
+    return {
+      unrealizedGainsAndLoses: () => {
+        if (fs.existsSync(path.join(__dirname, 'fail-query'))) throw new Error('連線中斷（假的）')
+        if (this.apiKey.includes('no-accounting')) return DENIED
+        const file = path.join(__dirname, 'positions.json')
+        return { isSuccess: true, data: fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : HOLDINGS }
       },
     }
   }
@@ -44,4 +69,4 @@ class CoreSdk {
   }
 }
 
-module.exports = { CoreSdk }
+module.exports = { CoreSdk, HOLDINGS }
