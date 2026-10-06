@@ -51,12 +51,14 @@ export default {
 
   // Every SDK call is synchronous (construction alone takes a second), so it runs in a separate utility process to keep the pet responsive
   async fetch({ creds, from, to, sdkDir, runWorker, previous, connectOnly, manual }) {
-    const run = async (apiKey, payload, timeout) => {
-      const res = await runWorker(WORKER, { sdkDir, ...creds, apiKey, ...payload }, timeout)
+    // The worker stops querying 15 s before the timeout so it can still log out; the timeout itself only catches a hung SDK call
+    const run = async (apiKey, payload, timeout = 120_000) => {
+      const res = await runWorker(WORKER, { sdkDir, ...creds, apiKey, deadline: Date.now() + timeout - 15_000, ...payload }, timeout)
       if (/連線測試成功/.test(res.error ?? '')) throw new Error('富邦回覆連線測試成功，API 權限會在簽署隔天 9:00 前開通，到時候再按一次「連線並同步」。')
       if (res.loginFailed) throw needsUser(res.error) // Login failed: pause auto sync so the account doesn't get locked
       if (res.error) throw new Error(res.error)
       if (res.throttled) throw new Error('富邦限制了查詢次數（業務系統流量控管），這次先不更新。請過幾分鐘再試')
+      if (res.timedOut) throw new Error('富邦回應太慢，這次沒有查完，帳本先不更新。請過幾分鐘再試')
       return res
     }
 

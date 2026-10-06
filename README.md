@@ -179,7 +179,7 @@ Right-click → "證券帳戶同步…" (Broker account sync) → "富邦證券"
 
    It only logs in once with your account password and then logs out, and it stores nothing. Once you see "…此訊息表連線測試成功" ("…this message means the connection test succeeded"), you're done; the API is enabled by 9:00 the next day
 5. Create an API key with only the "證券業務" (Securities account) permission. **Don't check "證券下單" (Securities orders)**, so even if the key leaks it can't be used to place orders
-6. *(Optional)* Import your past trades. **If you don't need your history, skip this: syncing only needs "證券業務", not "證券下單".** Fubon only returns the trade history to keys with the "證券下單" order permission, so to import it, create a second key with "證券業務" + "證券下單", paste it into the "歷史匯入用 API Key" (history import key) field, and delete it at Fubon once the import is done. NestEgg uses it for that one connection and never stores it
+6. *(Optional)* Import your past trades. **If you don't need your history, skip this: syncing only needs "證券業務", not "證券下單".** Fubon only returns the trade history to keys with the "證券下單" order permission, so to import it, create a second key with "證券業務" + "證券下單" and the earliest expiry date Fubon allows (this key can place orders, so paste it nowhere else), paste it into the "歷史匯入用 API Key" (history import key) field, and delete it at Fubon once the import is done. NestEgg uses it for that one connection and never stores it
 7. Once the API is enabled, enter your national ID number, API key and certificate to connect
 
 After that, NestEgg syncs automatically once a day by reconciling your holdings: it reads your current Fubon holdings and compares them with what it recorded last time. More shares are recorded as a buy, fewer as a sell, dated the day NestEgg notices the change (a few days late if the computer was off; the pet's 7-day grace period absorbs that). Without imported history, your current holdings are recorded as bought on the day you connect, so the pet starts as an egg.
@@ -488,7 +488,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 
    只會用帳號密碼登入一次再登出，不儲存任何資料。看到「…此訊息表連線測試成功」就完成了，API 隔天 9:00 前開通
 5. 建立 API Key，權限只勾「證券業務」，**不要勾「證券下單」**——就算外洩也不能拿來下單
-6. （選用）匯入過去的成交紀錄。**不需要歷史紀錄就跳過這一步：同步只需要「證券業務」，不用開「證券下單」。**富邦要有「證券下單」權限的金鑰才查得到成交紀錄，所以要匯入的話，另外建立一把勾「證券業務」＋「證券下單」的金鑰，貼到「歷史匯入用 API Key」，匯入完成後到富邦把它刪除。NestEgg 只在這次連線時用它，不會儲存
+6. （選用）匯入過去的成交紀錄。**不需要歷史紀錄就跳過這一步：同步只需要「證券業務」，不用開「證券下單」。**富邦要有「證券下單」權限的金鑰才查得到成交紀錄，所以要匯入的話，另外建立一把勾「證券業務」＋「證券下單」的金鑰（到期日選最近的日期；這把金鑰能下單，請只貼在這裡），貼到「歷史匯入用 API Key」，匯入完成後到富邦把它刪除。NestEgg 只在這次連線時用它，不會儲存
 7. API 開通後，輸入身分證字號、API Key、憑證，連線並同步
 
 設定好之後，NestEgg 每天會自動對帳一次：讀你目前的富邦持股，和上次記下的比對，股數變多記成買進、變少記成賣出，日期是 NestEgg 發現變化的那天（電腦沒開的日子會晚幾天，寵物有 7 天寬限，不太受影響）。沒有匯入歷史的話，目前的持股會記成連線那天買進，寵物從蛋開始。
