@@ -562,6 +562,10 @@ async function runAll() {
     })
     assert.match(result, /正在同步/)
     assert.equal((await page("window.broker.status('fubon')")).ok.connected, true)
+    // The history key can place orders: the field is cleared as soon as it's sent, even when the import fails
+    await page(`const h = document.getElementById('history'); h.elements.historyKey.value = 'no-permission-key'; h.elements.since.value = '2026-09-01'; h.requestSubmit(); 0`, fubonPage())
+    assert.match(await until('document.getElementById("result").className + " " + document.getElementById("result").textContent', v => /error/.test(v), '匯入失敗的訊息', 15_000, fubonPage), /證券下單/)
+    assert.equal(await page("document.getElementById('history').elements.historyKey.value", fubonPage()), '')
     fubonPage().destroy()
   })
 

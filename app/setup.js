@@ -62,6 +62,11 @@ function report({ ok, error }) {
   show(`同步完成：${ok.accounts} 個證券帳戶，新增 ${ok.added} 筆紀錄。${warn}`, 'success')
 }
 
+// Fubon's history key can place orders: clear it as soon as it's sent, whatever the outcome, so it never stays on screen
+function clearHistoryKey(f) {
+  if (f.elements.historyKey) f.elements.historyKey.value = ''
+}
+
 function initBrokerPage() {
   $('install')?.addEventListener('click', () => busy($('install'), '安裝中…', async () => {
     const { ok, error } = await window.broker.installSdk(id)
@@ -80,7 +85,9 @@ function initBrokerPage() {
     e.preventDefault()
     busy(form.querySelector('[type=submit]'), '連線中…', async () => {
       show(`正在登入${name}並查詢成交紀錄，第一次可能要一分鐘…`)
-      const res = await window.broker.connect(id, { ...Object.fromEntries(new FormData(form)), certPath })
+      const values = Object.fromEntries(new FormData(form))
+      clearHistoryKey(form)
+      const res = await window.broker.connect(id, { ...values, certPath })
       report(res)
       if (res.ok) {
         form.reset()
@@ -97,7 +104,9 @@ function initBrokerPage() {
     const history = $('history')
     busy(history.querySelector('[type=submit]'), '匯入中…', async () => {
       show('正在匯入過去的成交紀錄，期間長的話要幾分鐘…')
-      const res = await window.broker.connect(id, { ...Object.fromEntries(new FormData(history)), keepKeys: true })
+      const values = Object.fromEntries(new FormData(history))
+      clearHistoryKey(history)
+      const res = await window.broker.connect(id, { ...values, keepKeys: true })
       report(res)
       if (res.ok) {
         history.reset()
