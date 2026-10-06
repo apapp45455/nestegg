@@ -4,7 +4,6 @@
 import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { holdings } from '../../engine/index.js'
 import { dateWindows, fillsToRows, positionsOf, reconcile } from '../../sync/fubon.js'
 
 const MIN_SDK = '2.2.7' // apikeyLogin first appeared in this version
@@ -82,11 +81,12 @@ export default {
     // A partial list would look like sells, so any failed account stops the sync
     if (res.errors.length) throw new Error(`查詢持股失敗：${res.errors[0]}`)
     const positions = positionsOf(res.assets)
-    // No holdings at all, but some were recorded: maybe a temporary empty answer (maintenance), maybe everything was
-    // sold. Auto sync doesn't guess; it stops and asks the user to confirm
-    if (!manual && !Object.keys(positions).length && [...holdings(owned, to).values()].some(h => h.shares > 0)) {
-      throw needsUser('富邦這次沒有回傳任何持股，先不更新帳本。如果你已經全部賣出，請按「立即同步」確認')
+    const changes = reconcile(positions, owned, to)
+    // Sells while Fubon returned no holdings at all, or answered 查無 for an account: maybe a temporary empty answer
+    // (maintenance), maybe a real sale. Auto sync doesn't guess; it stops and asks the user to confirm
+    if (!manual && changes.some(r => r.action === 'sell') && (res.noData || !Object.keys(positions).length)) {
+      throw needsUser('富邦這次沒有回傳部分或全部的持股，先不更新帳本。如果你真的賣出了，請按「立即同步」確認')
     }
-    return { rows: [...owned, ...reconcile(positions, owned, to)], accounts: res.accounts, warnings }
+    return { rows: [...owned, ...changes], accounts: res.accounts, warnings }
   },
 }

@@ -189,8 +189,8 @@ async function runAll() {
   await test('富邦對帳：自動同步遇到持股全空就停下來請你確認，帳本不動', async () => {
     writeFileSync(join(SDK, 'positions.json'), '[]')
     try {
-      await assert.rejects(syncSaved('fubon'), /沒有回傳任何持股/)
-      assert.match((await page("window.broker.status('fubon')")).ok.paused, /沒有回傳任何持股/)
+      await assert.rejects(syncSaved('fubon'), /沒有回傳部分或全部的持股/)
+      assert.match((await page("window.broker.status('fubon')")).ok.paused, /沒有回傳部分或全部的持股/)
       assert.equal(ledgerLines(), 13)
     } finally {
       rmSync(join(SDK, 'positions.json'))

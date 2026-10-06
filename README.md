@@ -187,7 +187,7 @@ After that, NestEgg syncs automatically once a day by reconciling your holdings:
 - The code only calls API-key login, `accounting.unrealizedGainsAndLoses` (holdings), `stock.filledHistory` (trade history, only with the one-time key) and logout. There are **no order-related calls**; see [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
 - Only cash holdings and trades count; margin buying, short selling and securities lending don't count toward principal
 - The imported trade history doesn't include fees, so that part of the principal comes out slightly low; daily reconciliation uses Fubon's cost price. If you've imported Fubon statements as CSV, use one source or the other, not both, to avoid duplicates
-- If auto sync gets no holdings at all while some were recorded, it stops and asks you to confirm with "立即同步" (Sync now), in case the empty answer was temporary
+- If auto sync would record a sell while Fubon returned no holdings at all, or answered "no data" (查無) for one of your accounts, it stops and asks you to confirm with "立即同步" (Sync now), in case the empty answer was temporary
 - If auto-sync fails (for example, because the API key expired), it pauses and shows a notice next to the pet, instead of logging in again and again and getting your account locked
 - The first time it syncs on a Mac, macOS asks whether NestEgg may use the keychain; choose "Always Allow"
 
@@ -496,7 +496,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 - 程式只呼叫 API Key 登入、`accounting.unrealizedGainsAndLoses`（持股）、`stock.filledHistory`（成交紀錄，只有一次性金鑰會用到）與登出，**沒有任何下單相關的呼叫**，見 [`app/brokers/fubon-worker.cjs`](app/brokers/fubon-worker.cjs)
 - 只算現股；融資、融券、借券不算本金
 - 匯入的歷史成交紀錄不含手續費，所以這部分本金會略少一點；每天對帳用的是富邦的成本價。用 CSV 匯入過富邦對帳單的話，兩種來源擇一，以免重複
-- 自動同步查到的持股全空、但之前有記錄時，會先停下來請你按「立即同步」確認，以免是暫時查不到
+- 自動同步要記一筆賣出、而富邦這次完全沒有回傳持股，或有帳戶回「查無」時，會先停下來請你按「立即同步」確認，以免是暫時查不到
 - 自動同步失敗（例如 API Key 過期）會暫停並在寵物旁提示，不會反覆登入導致帳號被鎖
 - Mac 第一次同步時會詢問 NestEgg 能否使用鑰匙圈，請選「永遠允許」
 
