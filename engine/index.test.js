@@ -142,6 +142,16 @@ test('planRows: the pet counts plan contributions like any other buy', () => {
   assert.deepEqual([pet.stage, pet.size, pet.satiety], ['adult', 3, 3]) // 13 months × 10,000 = 130,000
 })
 
+test('planRows: plan money on a symbol with recorded shares changes neither the fur nor what a sell removes', () => {
+  const plan = { symbol: '0050', amount: 10_000, day: 6, start: '2025-01-01', end: null }
+  const ledger = [{ date: '2025-01-02', symbol: '0050', action: 'buy', shares: 100, amount: 10_000, fee: 0 }, ...planRows([plan], '2026-01-10')]
+  const market = { date: '2026-01-10', indexChange: 0, prices: { '0050': { close: 100, change: 0 } } }
+  const pet = evaluate(ledger, '2026-01-10', market)
+  assert.deepEqual([pet.fur, pet.size], ['normal', 3]) // 100 shares worth what they cost; 140,000 principal
+  const sold = [...ledger, { date: '2026-01-08', symbol: '0050', action: 'sell', shares: 100, amount: 10_000, fee: 0 }]
+  assert.equal(evaluate(sold, '2026-01-10').size, 3) // 130,000 of plan money is left
+})
+
 test('parsePlans: normalizes good plans and names the problem in a bad one', () => {
   assert.deepEqual(parsePlans([{ symbol: ' voo ', amount: '10000', day: '6', start: '2026-01-06', end: '' }]), [
     { symbol: 'VOO', amount: 10_000, day: 6, start: '2026-01-06', end: null },

@@ -102,12 +102,16 @@ function marketMood(holdings, market, s) {
 
 // settings (optional): the user's pet settings, see SETTINGS; missing or bad values use the defaults
 // Shares and principal per symbol after replaying the ledger up to `today` (replayable: later records don't count)
+// cost is what the shares cost; amountOnly is principal recorded without shares (recurring plans), kept apart so it
+// doesn't skew the market value comparison and no sell of the recorded shares takes it away
 export function holdings(ledger, today) {
-  const held = new Map() // symbol → { shares, cost }
+  const held = new Map() // symbol → { shares, cost, amountOnly }
   for (const r of [...ledger].sort(byDate)) {
     if (r.date > today) break
-    const h = held.get(r.symbol) ?? { shares: 0, cost: 0 }
-    if (r.action === 'buy') {
+    const h = held.get(r.symbol) ?? { shares: 0, cost: 0, amountOnly: 0 }
+    if (r.action === 'buy' && !r.shares) {
+      h.amountOnly += r.amount + r.fee
+    } else if (r.action === 'buy') {
       h.shares += r.shares
       h.cost += r.amount + r.fee
     } else if (r.action === 'sell' && h.shares > 0) {
@@ -129,7 +133,7 @@ export function evaluate(ledger, today, market = null, settings = {}) {
   const env = { ...marketMood(held, market, s), marketDate: market?.date ?? null, indexChange: market?.indexChange ?? null }
   if (!firstBuy) return { stage: 'none', age: 0, size: 1, satiety: 3, ...env }
 
-  const principal = [...held.values()].reduce((s, h) => s + h.cost, 0)
+  const principal = [...held.values()].reduce((s, h) => s + h.cost + h.amountOnly, 0)
   const age = days(firstBuy, today)
   const missed = Math.floor((days(lastBuy, today) - s.grace) / s.period)
   return {
