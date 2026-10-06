@@ -212,6 +212,31 @@ If you invest the same amount on the same day every month, set it up once: right
 - To sell shares a plan bought, record the sale in the same window (not in the ledger): the shares sold and the shares you held right before, both shown on your broker's holdings page. Plans record no shares, so that fraction of the symbol's principal is removed, single buys of the same symbol included, which is the average-cost rule
 - Plans are kept in `plans.json` and added up whenever the pet is evaluated, so the ledger only holds your real records. If you also import, type or sync the same contributions, pick one source to avoid counting them twice
 
+#### Supported brokers
+
+Right-click → "證券帳戶同步…" (Broker account sync) connects these brokers. NestEgg only logs in and reads; every key it asks for is the most limited one the broker offers.
+
+| Broker | Market | Broker API | What NestEgg reads | Can the stored key place orders? | Tested with a real account |
+|---|---|---|---|---|---|
+| [Fubon Securities (富邦證券)](#fubon-securities-auto-sync) | Taiwan stocks | Fubon's next-generation API (Node.js SDK) | Current holdings every day; optionally the past trades, once | No: only "證券業務" (Securities account). The optional one-time history key has the order permission and is never stored | Login and permissions yes; holdings not yet |
+| [Sinopac Securities (永豐金證券)](#sinopac-securities-auto-sync-experimental) | Taiwan stocks | Shioaji (official command-line program) | Positions and realized profit and loss | No: no "交易" (Trading) permission, and no certificate | Not yet (experimental) |
+| [Interactive Brokers](#interactive-brokers-auto-sync-experimental) | US stocks and ETFs (US dollars) | Flex Web Service (reports only) | Trade executions | No: the token can only download reports | Not yet (experimental) |
+
+**Planned**
+
+| Broker | Status | What it's waiting for |
+|---|---|---|
+| Fubon sub-brokerage (富邦複委託) statements | Planned | Not an API: import the trade history file downloaded from Fubon's website. Waiting for a sample of the export format |
+| E.SUN Securities (玉山證券) | Being evaluated | Someone with an account to test it, and a safe approach: its login would require storing the brokerage password |
+| Charles Schwab | On hold | Its API tokens can place orders, must be renewed every 7 days, and need a developer app per person. Waiting for a Schwab user who can test it |
+
+**Not possible for now**, and what to do instead:
+
+- **Sub-brokerage (複委託) accounts through the Fubon, Sinopac or Cathay APIs**: their APIs can't read sub-brokerage accounts. Use [recurring plans](#recurring-plans) for regular contributions and [CSV import](#trade-record-format) for single trades
+- **KGI (凱基) and MasterLink (元富)**: their APIs only come as Windows or C# SDKs, which NestEgg can't use on a Mac
+- **Firstrade**: no official API
+- **Any other broker**: import its statement as CSV, or edit the ledger by hand
+
 #### Fubon Securities auto-sync
 
 Right-click → "證券帳戶同步…" (Broker account sync) → "富邦證券" (Fubon Securities). The setup wizard walks you through each step:
@@ -584,6 +609,31 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 - 要改金額：在原計畫填上結束日期，再新增一個。填結束日期會保留已經記的投入；刪除計畫則會一起拿掉
 - 賣出定期定額買的股票，在同一個視窗記一筆賣出（不要記到帳本）：填賣出股數和賣出前的持有股數，券商 App 的庫存頁都看得到。計畫不記股數，所以寵物會按這個比例扣掉這一檔的本金，包含同一檔單筆買的部分，也就是平均成本法
 - 計畫存在 `plans.json`，每次計算寵物時才加總，所以帳本裡只有你的真實紀錄。同一筆投入如果也用匯入、手動記帳或券商同步，請擇一來源，以免重複
+
+#### 支援的券商
+
+右鍵 →「證券帳戶同步…」可以連接下面這些券商。NestEgg 只會登入與查詢；要你申請的金鑰都是券商提供的權限最小的那種。
+
+| 券商 | 市場 | 券商的 API | NestEgg 讀取的資料 | 儲存的金鑰能下單嗎 | 用真實帳戶測過 |
+|---|---|---|---|---|---|
+| [富邦證券](#富邦證券自動同步) | 台股 | 富邦新一代 API（Node.js SDK） | 每天讀目前持股；可選擇匯入一次過去的成交紀錄 | 不能：只有「證券業務」權限。選用的一次性歷史匯入金鑰有下單權限，但不會儲存 | 登入與權限測過；持股還沒 |
+| [永豐金證券](#永豐金證券自動同步實驗性) | 台股 | Shioaji（官方命令列程式） | 持倉與已實現損益 | 不能：不勾「交易」權限，也不提供憑證 | 還沒（實驗性） |
+| [Interactive Brokers（盈透）](#interactive-brokers-自動同步實驗性) | 美股與 ETF（美元計價） | Flex Web Service（只能下載報表） | 成交紀錄 | 不能：金鑰只能下載報表 | 還沒（實驗性） |
+
+**待加入**
+
+| 券商 | 狀態 | 在等什麼 |
+|---|---|---|
+| 富邦複委託對帳單 | 規劃中 | 不是 API，而是匯入從富邦網站下載的交易明細檔。等拿到匯出檔的格式範例 |
+| 玉山證券 | 評估中 | 需要有帳戶的人幫忙測試，也要先找到安全的做法：登入需要儲存證券帳戶密碼 |
+| 嘉信（Charles Schwab） | 暫緩 | API 授權能下單、每 7 天要重新登入，而且每個人都要自己申請開發者帳號。等有使用嘉信的人能幫忙測試再評估 |
+
+**目前無法支援**，以及可以改用的方法：
+
+- **透過富邦、永豐、國泰的 API 讀複委託帳戶**：他們的 API 查不到複委託帳戶。定期投入用[定期定額計畫](#定期定額計畫)，單筆買賣用 [CSV 匯入](#交易紀錄格式)
+- **凱基、元富**：API 只有 Windows 或 C# 版本，NestEgg 在 Mac 上沒辦法用
+- **Firstrade（第一證券）**：沒有官方 API
+- **其他券商**：把對帳單匯成 CSV 匯入，或直接手動記帳
 
 #### 富邦證券自動同步
 
