@@ -206,6 +206,21 @@ async function runAll() {
     assert.equal(ledgerLines(), 13)
   })
 
+  await test('富邦：之後才用歷史金鑰重新連線，歷史取代之前對帳記下的紀錄，不會重複算', async () => {
+    // First connect without history: holdings already recorded become one buy today at Fubon's cost
+    const connect = historyKey =>
+      page(`window.broker.connect('fubon', { id: 'a123456789', apiKey: 'e2e-key', historyKey: '${historyKey}', certPath: ${JSON.stringify(CERT)}, certPass: '', since: '2025-10-01' })`)
+    rmSync(join(DATA, 'fubon', 'rows.json'))
+    writeFileSync(join(DATA, 'ledger.csv'), readFileSync(join(DATA, 'ledger.csv'), 'utf8').split('\n').filter(l => !l.includes(',0050,')).join('\n'))
+    const fresh = await connect('')
+    assert.equal(fresh.error, undefined, fresh.error)
+    assert.deepEqual([fresh.ok.added, ledgerLines(',0050,'), ledgerLines(`${today()},0050,buy,${HOLDINGS[0].todayQty},`)], [1, 1, 1])
+    // Then import the history: the real trades replace that buy, and the holdings match, so nothing else is added
+    const history = await connect('history-key')
+    assert.equal(history.error, undefined, history.error)
+    assert.deepEqual([ledgerLines(',0050,'), ledgerLines(`${today()},0050,`)], [11, 0])
+  })
+
   await test('富邦同步：同步中按「連線並同步」會被擋下，不會拿到舊結果、也不會蓋掉儲存的金鑰', async () => {
     const secret = () => JSON.parse(readFileSync(join(DATA, 'fubon', 'config.json'), 'utf8')).secret
     const before = secret()
@@ -225,7 +240,7 @@ async function runAll() {
       rmSync(join(SDK, 'fail-query'))
     }
     assert.equal((await page("window.broker.status('fubon')")).ok.paused, undefined)
-    assert.equal(ledgerLines(), 13)
+    assert.equal(ledgerLines(), 11)
   })
 
   await test('富邦同步：登入失敗時暫停自動同步、帳本不變', async () => {
@@ -233,7 +248,7 @@ async function runAll() {
     const res = await page("window.broker.sync('fubon')")
     assert.match(res.error, /登入失敗/)
     assert.match((await page("window.broker.status('fubon')")).ok.paused, /登入失敗/)
-    assert.equal(ledgerLines(), 13)
+    assert.equal(ledgerLines(), 11)
   })
 
   await test('永豐同步：用持倉明細拼回買進紀錄，只算現股，只呼叫帳務查詢', async () => {
@@ -283,7 +298,7 @@ async function runAll() {
       writeFileSync(join(SDK, 'fail-login'), '') // Restore the state from earlier tests
     }
     assert.equal(ledgerLines(',2884,'), 1)
-    assert.equal(ledgerLines(',0050,'), 13)
+    assert.equal(ledgerLines(',0050,'), 11)
   })
 
   await test('永豐同步：上次同步的紀錄檔壞掉就停下來、帳本不動（不猜，免得本金重複）', async () => {

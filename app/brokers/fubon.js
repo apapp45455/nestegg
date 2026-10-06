@@ -4,7 +4,7 @@
 import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { holdings, mergeLedger } from '../../engine/index.js'
+import { holdings } from '../../engine/index.js'
 import { dateWindows, fillsToRows, positionsOf, reconcile } from '../../sync/fubon.js'
 
 const MIN_SDK = '2.2.7' // apikeyLogin first appeared in this version
@@ -66,7 +66,9 @@ export default {
       })
       if (res.unauthorized) throw new Error('歷史匯入用的 API Key 沒有「證券下單」權限，查不到過去的成交紀錄。請確認這把金鑰有勾「證券下單」，或把這一欄留空，只同步之後的變化')
       if (!res.fills.length && res.errors.length) throw new Error(`查詢成交紀錄失敗：${res.errors[0]}`)
-      owned = mergeLedger(previous, fillsToRows(res.fills)) // Re-importing the same history adds nothing
+      // Importing history rebuilds the rows this sync owns from scratch: holdings recorded earlier by reconciling
+      // (for example, bought "today" when first connected without history) are replaced by the real trades, not counted twice
+      owned = fillsToRows(res.fills)
       warnings = res.errors
     }
 
