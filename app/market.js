@@ -1,7 +1,7 @@
 // Public market data: the TAIEX and TWSE/TPEx closing prices, and for US holdings the Nasdaq tables and TAIFEX's USD/NTD rate.
 // Always download the whole public table and match holdings locally, so which stocks the user holds never leaves this computer.
 // The one exception is opt-in (pet settings → usHistory): each US symbol bought by amount only (recurring plans) gets its
-// daily closes downloaded on its own, which tells Nasdaq the symbol (never amounts or who is asking).
+// daily closes downloaded on its own, which tells Nasdaq the symbol (never amounts, who is asking, or when the plan started).
 import { app } from 'electron'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -57,7 +57,10 @@ async function fetchHistory(need, us) {
       history[symbol] = { from: earliest, closes: [] }
       continue
     }
-    const from = addDays(earliest, -7) // A debit day on a holiday is priced at the next close, so start a little earlier
+    // Whole years from a fixed point, so the request doesn't tell when the plan started: January 1st five years ago, or
+    // of an older plan's first year. A week before the first debit is always included (a holiday debit day takes the next close)
+    const year = Math.min(Number(addDays(earliest, -7).slice(0, 4)), new Date().getFullYear() - 5)
+    const from = `${year}-01-01`
     const kind = us.etfs.includes(symbol) ? 'etf' : 'stocks'
     // The quote pages write class shares with a dot (BRK.B), unlike the screener tables
     const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/historical?assetclass=${kind}&fromdate=${from}&todate=${addDays(new Date().toISOString().slice(0, 10), 1)}&limit=9999`

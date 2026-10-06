@@ -72,7 +72,7 @@ Price moves only change how the pet looks *today*. They **never affect growth, s
 
 **US stocks.** Tickers that don't start with a digit (VOO, QQQ, BRK.B) are priced from Nasdaq's public tables of every listed US stock and ETF, and converted to NT$ with TAIFEX's daily USD/NTD rate. VOO's change stands in for the S&P 500. Nasdaq's tables are sometimes a session behind; the speech bubble shows the date of the prices.
 
-Contributions recorded without shares (recurring plans) count toward the mood at cost. For the fur, NestEgg needs the close on each debit day to know how much each contribution bought, and that takes one lookup per ticker. Turn on "逐檔查美股歷史價格" (Look up US price history) in pet settings to allow it. It's off by default because it tells Nasdaq which tickers you hold (never amounts or who you are). The gain is then the fund's return in US dollars, leaving out currency moves.
+Contributions recorded without shares (recurring plans) count toward the mood at cost. For the fur, NestEgg needs the close on each debit day to know how much each contribution bought, and that takes one lookup per ticker. Turn on "逐檔查美股歷史價格" (Look up US price history) in pet settings to allow it. It's off by default because it tells Nasdaq which tickers you hold (never amounts, who you are, or when you started; the lookups always cover whole years from a fixed point). The gain is then the fund's return in US dollars, leaving out currency moves.
 
 #### Evolution branches = investing styles (planned)
 
@@ -397,7 +397,7 @@ This project is not affiliated with any securities firm.
 
 **美股。** 不是數字開頭的代號（VOO、QQQ、BRK.B）用 Nasdaq 公開的全部美股與 ETF 價格表計價，再用期交所每日的美元兌台幣匯率換成台幣。S&P 500 的漲跌用 VOO 代表。Nasdaq 的表有時會晚一個交易日，氣泡會顯示價格的日期。
 
-沒有股數的投入（定期定額計畫）會以成本算進心情。毛色則要知道每個扣款日的收盤價，才算得出每次買到多少，這只能一檔一檔查。在寵物設定打開「逐檔查美股歷史價格」才會這樣查。預設關閉，因為 Nasdaq 會知道有人查了哪些代號（不會知道金額或你是誰）。這樣算出的報酬是基金的美元報酬，不含匯率變動。
+沒有股數的投入（定期定額計畫）會以成本算進心情。毛色則要知道每個扣款日的收盤價，才算得出每次買到多少，這只能一檔一檔查。在寵物設定打開「逐檔查美股歷史價格」才會這樣查。預設關閉，因為 Nasdaq 會知道有人查了哪些代號（不會知道金額、你是誰或什麼時候開始買；查詢一律從固定的年初開始）。這樣算出的報酬是基金的美元報酬，不含匯率變動。
 
 #### 進化分支 = 投資風格（規劃中）
 

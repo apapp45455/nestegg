@@ -577,6 +577,8 @@ async function runAll() {
     release()
     await waitFor(() => cache().history?.VTI, 'VTI 的歷史價格')
     assert.deepEqual([history('QQQ') >= 1, history('VTI')], [true, 1])
+    // The lookups start at a fixed year start, not at the plan's first debit day
+    assert.ok(net.requests.filter(u => u.includes('/historical')).every(u => u.includes(`fromdate=${new Date().getFullYear() - 5}-01-01&`)))
 
     // Nasdaq goes down when SPY is added: the Taiwan prices (a new trading day) are still saved, the US data is kept
     net.nasdaqDown = true
