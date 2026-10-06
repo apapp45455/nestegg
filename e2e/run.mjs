@@ -499,17 +499,29 @@ async function runAll() {
     await until('document.getElementById("empty").hidden', v => v === false, '計畫視窗載入', 15_000, plans)
     const before = await page('state.size')
     assert.ok(before < 5, `目前是 Lv${before}`)
-    const fill = values => page(`(f => { ${Object.entries(values).map(([k, v]) => `f.elements.${k}.value = ${JSON.stringify(v)};`).join(' ')} f.requestSubmit(); 0 })(document.getElementById('add'))`, plans())
+    const fill = (values, form = 'add') => page(`(f => { ${Object.entries(values).map(([k, v]) => `f.elements.${k}.value = ${JSON.stringify(v)};`).join(' ')} f.requestSubmit(); 0 })(document.getElementById('${form}'))`, plans())
     // US stocks through 複委託: NT$30,000 on the 1st of every month for the last two years
     const start = new Date(Date.parse(today()) - 730 * 864e5).toISOString().slice(0, 10)
     await fill({ symbol: 'voo', amount: '30000', day: '1', start })
     await until('state.size', v => v > before, '計畫的投入讓寵物變大')
-    assert.equal(JSON.parse(readFileSync(file, 'utf8'))[0].symbol, 'VOO')
+    assert.equal(JSON.parse(readFileSync(file, 'utf8'))[0].symbol, 'VOO') // Without sells, the plans-only array older versions read
     assert.match(await page('document.getElementById("plans").textContent', plans()), /VOO · 每月 1 日 · NT\$30,000.*已記 2[45] 筆/)
     // Invalid in a way the form can't catch (the form itself blocks an amount of 0): not saved, and the window says why
     await fill({ symbol: '台積電', amount: '5000', day: '6', start })
     assert.match(await until('document.getElementById("result").textContent', v => v, '錯誤訊息', 15_000, plans), /第 2 個計畫：請填標的代號/)
     assert.equal(JSON.parse(readFileSync(file, 'utf8')).length, 1)
+    // Selling 15 of the 20 shares held: three quarters of VOO's principal go, and deleting the sale brings it back
+    const planned = await page('state.size')
+    await page('document.getElementById("result").textContent = ""', plans())
+    await fill({ symbol: 'VOO', shares: '30', held: '20' }, 'sell') // More than held: not saved
+    assert.match(await until('document.getElementById("result").textContent', v => v, '賣出的錯誤訊息', 15_000, plans), /第 1 筆賣出：賣出前的持有股數不能比賣出股數少/)
+    await fill({ symbol: 'VOO', shares: '15', held: '20' }, 'sell')
+    await until('state.size', v => v < planned, '賣出後寵物變小')
+    assert.match(await page('document.getElementById("sells").textContent', plans()), /VOO · \d{4}-\d{2}-\d{2} 賣出 15 股.*扣掉 75%/)
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).sells, [{ symbol: 'VOO', date: today(), shares: 15, held: 20 }])
+    await page('window.confirm = () => true; document.querySelector("#sells button").click(); 0', plans())
+    await until('state.size', v => v === planned, '刪除賣出後回到原本的體型')
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).length, 1) // No sells left: back to the plans-only array
     // Ending the plan two months in keeps only those contributions
     const end = new Date(Date.parse(start) + 60 * 864e5).toISOString().slice(0, 10)
     await page(`(i => { i.value = ${JSON.stringify(end)}; i.dispatchEvent(new Event('change')); 0 })(document.querySelector('#plans input[type=date]'))`, plans())

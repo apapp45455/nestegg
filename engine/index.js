@@ -61,7 +61,10 @@ export function parseLedger(text) {
 const toLine = r => [r.date, r.symbol, r.action, r.shares, r.amount, r.fee].join(',')
 // Within a day, apply buys, then dividends, then sells: otherwise a day trade's sell (even sell-before-buy) is skipped as "nothing held yet", leaving phantom shares
 const SAME_DAY = { buy: 0, dividend: 1, sell: 2 }
-const byDate = (a, b) => a.date.localeCompare(b.date) || SAME_DAY[a.action] - SAME_DAY[b.action]
+// A sell given as a fraction of the shares held (see parseSells) goes first: the holding it was counted against doesn't
+// include that day's buys yet, for example a plan debit on the same day
+const dayOrder = r => (r.held ? -1 : SAME_DAY[r.action])
+const byDate = (a, b) => a.date.localeCompare(b.date) || dayOrder(a) - dayOrder(b)
 
 export const toCsv = rows => [HEADER, ...rows.map(toLine)].join('\n') + '\n'
 
@@ -93,9 +96,16 @@ const isTw = symbol => /^\d/.test(symbol)
 // close in NT$. Currency moves since then are left out, so this is the fund's return in US dollars
 function planUnits(ledger, today, history) {
   const units = new Map() // symbol → { units, cost }
-  for (const r of ledger) {
+  for (const r of [...ledger].sort(byDate)) {
+    if (r.date > today) break
+    if (r.action === 'sell' && r.held && units.has(r.symbol)) { // Sold like in holdings(): the same fraction goes
+      const u = units.get(r.symbol)
+      const kept = 1 - Math.min(1, r.shares / r.held)
+      u.units *= kept
+      u.cost *= kept
+    }
     const closes = history?.[r.symbol]?.closes
-    if (r.action !== 'buy' || r.shares || r.date > today || !closes?.length) continue
+    if (r.action !== 'buy' || r.shares || !closes?.length) continue
     const close = (closes.find(([date]) => date >= r.date) ?? closes.at(-1))[1] // Not priced yet: the latest close
     const u = units.get(r.symbol) ?? { units: 0, cost: 0 }
     u.units += (r.amount + r.fee) / close
@@ -154,6 +164,13 @@ export function holdings(ledger, today) {
     } else if (r.action === 'buy') {
       h.shares += r.shares
       h.cost += r.amount + r.fee
+    } else if (r.action === 'sell' && r.held) {
+      // A sale given as shares sold out of shares held (see parseSells): the symbol keeps that much less of everything,
+      // recorded shares and plan money alike, which is the average-cost rule for a holding whose share count isn't known
+      const kept = 1 - Math.min(1, r.shares / r.held)
+      h.shares *= kept
+      h.cost *= kept
+      h.amountOnly *= kept
     } else if (r.action === 'sell' && h.shares > 0) {
       // Principal is reduced at average cost, so selling high or low doesn't change the remaining size
       const sold = Math.min(r.shares, h.shares)
@@ -190,6 +207,15 @@ export function evaluate(ledger, today, market = null, settings = {}) {
 // Plans live in their own file and are expanded on the fly, so editing or deleting one never leaves stale ledger rows.
 // Only the money counts (shares: 0): enough for age, fullness and size; mood and fur need prices anyway.
 // The UI saves only valid plans; a plan file edited badly by hand throws, and the pet shows the error like a bad ledger.
+const SYMBOL = /^[0-9A-Z][0-9A-Z.-]{0,11}$/
+
+// plans.json: { plans, sells }; a file from before sells existed holds just the plans array
+export function parsePlanFile(input) {
+  if (!input || typeof input !== 'object') throw new Error('定期定額計畫的格式不對')
+  const { plans = [], sells = [] } = Array.isArray(input) ? { plans: input } : input
+  return { plans: parsePlans(plans), sells: parseSells(sells) }
+}
+
 export function parsePlans(input) {
   if (!Array.isArray(input)) throw new Error('定期定額計畫的格式不對')
   return input.map((p, i) => {
@@ -201,7 +227,7 @@ export function parsePlans(input) {
       end: p?.end ? String(p.end) : null,
     }
     const problem =
-      !/^[0-9A-Z][0-9A-Z.-]{0,11}$/.test(plan.symbol) ? '請填標的代號，例如 0050 或 VOO'
+      !SYMBOL.test(plan.symbol) ? '請填標的代號，例如 0050 或 VOO'
         : !(Number.isInteger(plan.amount) && plan.amount > 0) ? '每月金額要是大於 0 的整數（台幣）'
           : !(Number.isInteger(plan.day) && plan.day >= 1 && plan.day <= 31) ? '扣款日要是 1 到 31'
             : !isDate(plan.start) ? '請選開始日期'
@@ -227,3 +253,29 @@ export function planRows(plans, today) {
   }
   return rows
 }
+
+// Selling shares bought by recurring plans: plans record no shares, so a sale is given as shares sold out of shares held
+// right before it (both on the broker's holdings page). That fraction of the symbol's principal goes, see holdings()
+export function parseSells(input) {
+  if (!Array.isArray(input)) throw new Error('賣出紀錄的格式不對')
+  return input.map((x, i) => {
+    const sell = {
+      symbol: String(x?.symbol ?? '').trim().toUpperCase(),
+      date: String(x?.date ?? ''),
+      shares: Number(x?.shares),
+      held: Number(x?.held),
+    }
+    const problem =
+      !SYMBOL.test(sell.symbol) ? '請填標的代號，例如 0050 或 VOO'
+        : !isDate(sell.date) ? '請選賣出日期'
+          : !(Number.isFinite(sell.shares) && sell.shares > 0) ? '賣出股數要大於 0'
+            : !(Number.isFinite(sell.held) && sell.held >= sell.shares) ? '賣出前的持有股數不能比賣出股數少'
+              : null
+    if (problem) throw new Error(`第 ${i + 1} 筆賣出：${problem}`)
+    return sell
+  })
+}
+
+// The rows the sells add by `today`; `held` marks them as fractional sells for holdings()
+export const sellRows = (sells, today) =>
+  sells.filter(x => x.date <= today).map(x => ({ date: x.date, symbol: x.symbol, action: 'sell', shares: x.shares, amount: 0, fee: 0, held: x.held }))
