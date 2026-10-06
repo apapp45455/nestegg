@@ -1,10 +1,11 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, screen, shell } from 'electron'
 import { existsSync } from 'node:fs'
-import { copyFile, readFile, rename, writeFile } from 'node:fs/promises'
+import { copyFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { HEADER, SETTINGS, evaluate, mergeLedger, parseLedger, parsePlans, parseSettings, planRows, removeRows, toCsv } from '../engine/index.js'
 import { initBrokers, openSetup } from './brokers.js'
-import { getMarket, startMarket } from './market.js'
+import { writeAtomic } from './files.js'
+import { getMarket, startMarket, updateMarket } from './market.js'
 import { anchorOf, placeAt } from './placement.js'
 
 const W = 200, H = 300
@@ -66,10 +67,9 @@ function addRows(rows, previous = []) {
     const existing = await readLedger() // Abort without overwriting if the existing ledger is corrupt
     const base = removeRows(existing, previous)
     const merged = mergeLedger(base, rows)
-    // Write a temp file, then rename (atomic): a forced quit or crash mid-write never leaves an empty ledger
-    await writeFile(`${LEDGER}.tmp`, toCsv(parseLedger(toCsv(merged))))
-    await rename(`${LEDGER}.tmp`, LEDGER)
+    await writeAtomic(LEDGER, toCsv(parseLedger(toCsv(merged))))
     await refresh()
+    updateMarket() // Imported or synced records may bring a new US ticker
     return { added: removeRows(rows, existing).length, inserted: removeRows(rows, base) } // The count is never negative
   })
   writing = task.catch(() => {}) // A failed write doesn't affect the next one
@@ -121,9 +121,9 @@ ipcMain.handle('settings:set', (_e, input) => {
   const task = savingSettings.then(async () => {
     const values = parseSettings(input)
     const changed = Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== SETTINGS[key].value))
-    await writeFile(`${SETTINGS_FILE}.tmp`, JSON.stringify(changed, null, 2))
-    await rename(`${SETTINGS_FILE}.tmp`, SETTINGS_FILE)
+    await writeAtomic(SETTINGS_FILE, JSON.stringify(changed, null, 2))
     await refresh()
+    updateMarket() // Turning on usHistory downloads the closes now
     return values
   })
   savingSettings = task.catch(() => {}) // A failed save doesn't affect the next one
@@ -157,9 +157,9 @@ let savingPlans = Promise.resolve()
 ipcMain.handle('plans:set', (_e, input) => {
   const task = savingPlans.then(async () => {
     const plans = parsePlans(input) // Throws with the problem, which the window shows; nothing is saved
-    await writeFile(`${PLANS_FILE}.tmp`, JSON.stringify(plans, null, 2))
-    await rename(`${PLANS_FILE}.tmp`, PLANS_FILE)
+    await writeAtomic(PLANS_FILE, JSON.stringify(plans, null, 2))
     await refresh()
+    updateMarket() // A plan on a new US ticker gets its prices now
     return describePlans(plans)
   })
   savingPlans = task.catch(() => {})
@@ -203,7 +203,10 @@ app.whenReady().then(() => {
   setInterval(refresh, 10_000)
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, place)
   initBrokers({ today, readLedger, onRows: addRows, say: text => pet()?.webContents.send('say', text) })
-  startMarket({ symbols: async () => (await records().catch(() => [])).map(r => r.symbol), onUpdate: refresh })
+  startMarket({
+    wants: async () => ({ records: await records().catch(() => []), usHistory: parseSettings(await readSettings()).usHistory }),
+    onUpdate: refresh,
+  })
 })
 
 // Clicking the Dock or taskbar icon makes the pet show a status bubble, so it's easy to find

@@ -1,10 +1,14 @@
-// Public market data: the TAIEX (weather) and TWSE/TPEx closing prices (mood, fur).
+// Public market data: the TAIEX and TWSE/TPEx closing prices, and for US holdings the Nasdaq tables and TAIFEX's USD/NTD rate.
 // Always download the whole public table and match holdings locally, so which stocks the user holds never leaves this computer.
+// The one exception is opt-in (pet settings → usHistory): each US symbol bought by amount only (recurring plans) gets its
+// daily closes downloaded on its own, which tells Nasdaq the symbol (never amounts, who is asking, or when the plan started).
 import { app } from 'electron'
 import { existsSync } from 'node:fs'
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { parseMarket } from '../sync/market.js'
+import { addDays } from '../engine/index.js'
+import { parseHistory, parseMarket, parseUs } from '../sync/market.js'
+import { writeAtomic } from './files.js'
 
 const CACHE = join(app.getPath('userData'), 'market.json')
 const MAX_AGE = 6 * 3_600_000 // Closing prices change once a day, so refreshing every 6 hours is enough
@@ -12,8 +16,13 @@ const URLS = {
   index: 'https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX',
   twse: 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
   tpex: 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes',
+  stocks: 'https://api.nasdaq.com/api/screener/stocks?tableonly=true&download=true',
+  etfs: 'https://api.nasdaq.com/api/screener/etf?download=true',
+  fx: 'https://openapi.taifex.com.tw/v1/DailyForeignExchangeRates',
 }
+const isTw = symbol => /^\d/.test(symbol) // Taiwan codes start with a digit; US tickers never do
 let market = null
+let wants, onUpdate, updating = null, again = false
 
 export const getMarket = () => market
 
@@ -23,29 +32,102 @@ async function getJson(url) {
   return res.json()
 }
 
-async function update(symbols, onUpdate) {
-  if (market && Date.now() - market.fetchedAt < MAX_AGE) return
+// What the holdings need: the US tables if any symbol is a US ticker, and with usHistory on, each US symbol bought by
+// amount only with the earliest such buy (its history has to reach back that far)
+async function needs() {
+  const { records, usHistory } = await wants()
+  const history = {}
+  for (const r of records) {
+    if (usHistory && !isTw(r.symbol) && r.action === 'buy' && !r.shares && !(history[r.symbol] <= r.date)) history[r.symbol] = r.date
+  }
+  return { symbols: new Set(records.map(r => r.symbol)), us: records.some(r => !isTw(r.symbol)), history }
+}
+
+// A fresh cache still needs a download when the holdings now want something it lacks (a first US ticker, a new plan).
+// After the US sources failed, wait for the next regular refresh: otherwise every save would download everything again
+const covers = (m, need) =>
+  Date.now() - (m.usFailedAt ?? 0) < MAX_AGE ||
+  ((!need.us || m.us) && Object.entries(need.history).every(([symbol, from]) => m.history?.[symbol]?.from <= from))
+
+// ponytail: one request per symbol, one after another; fine for the handful of symbols a person buys every month
+async function fetchHistory(need, us) {
+  const history = {}
+  for (const [symbol, earliest] of Object.entries(need)) {
+    if (!us.prices[symbol]) { // Not a listed ticker (a typo, or delisted): nothing to look up
+      history[symbol] = { from: earliest, closes: [] }
+      continue
+    }
+    // Whole years from a fixed point, so the request doesn't tell when the plan started: January 1st five years ago, or
+    // of an older plan's first year. A week before the first debit is always included (a holiday debit day takes the next close)
+    const year = Math.min(Number(addDays(earliest, -7).slice(0, 4)), new Date().getFullYear() - 5)
+    const from = `${year}-01-01`
+    const kind = us.etfs.includes(symbol) ? 'etf' : 'stocks'
+    // The quote pages write class shares with a dot (BRK.B), unlike the screener tables
+    const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/historical?assetclass=${kind}&fromdate=${from}&todate=${addDays(new Date().toISOString().slice(0, 10), 1)}&limit=9999`
+    // One symbol failing leaves only that symbol out of the fur until the next refresh, instead of failing the whole update
+    const closes = await getJson(url).then(parseHistory).catch(e => {
+      console.error(`${symbol} 歷史價格下載失敗：`, e.message)
+      return []
+    })
+    history[symbol] = { from: earliest, closes }
+  }
+  return history
+}
+
+async function update() {
   try {
+    const need = await needs()
+    if (market && Date.now() - market.fetchedAt < MAX_AGE && covers(market, need)) return
     const [index, twse] = await Promise.all([getJson(URLS.index), getJson(URLS.twse)])
     const listed = new Set(twse.map(r => r.Code))
-    // The TPEx table is over 4 MB; only download it when holdings include Taiwan codes not listed on TWSE (for example,
-    // bond ETFs). Taiwan codes start with a digit; US tickers such as VOO never appear in either table
-    const tpex = (await symbols()).some(s => /^\d/.test(s) && !listed.has(s)) ? await getJson(URLS.tpex) : []
-    market = { ...parseMarket(index, twse, tpex), fetchedAt: Date.now() }
-    await writeFile(`${CACHE}.tmp`, JSON.stringify(market))
-    await rename(`${CACHE}.tmp`, CACHE)
+    // The TPEx table is over 4 MB; only download it when holdings include Taiwan codes not listed on TWSE (for example, bond ETFs)
+    const tpex = [...need.symbols].some(s => isTw(s) && !listed.has(s)) ? await getJson(URLS.tpex) : []
+    const next = { ...parseMarket(index, twse, tpex), fetchedAt: Date.now() }
+    if (need.us) {
+      // The US sources are unofficial endpoints: when they fail, keep the last US data and still save the Taiwan prices
+      try {
+        const [stocks, etfs, fx] = await Promise.all([getJson(URLS.stocks), getJson(URLS.etfs), getJson(URLS.fx)])
+        // Which tickers are ETFs: the history lookup has to say so
+        next.us = { ...parseUs(stocks.data.rows, etfs.data, fx), etfs: etfs.data.data.rows.map(r => r.symbol) }
+        if (Object.keys(need.history).length) next.history = await fetchHistory(need.history, next.us)
+      } catch (e) {
+        console.error('美股行情更新失敗，沿用上次的資料：', e.message)
+        Object.assign(next, { us: market?.us, history: market?.history, usFailedAt: Date.now() })
+      }
+    }
+    market = next
+    await writeAtomic(CACHE, JSON.stringify(market))
     onUpdate()
   } catch (e) {
     console.error('行情更新失敗，沿用上次的資料：', e.message) // Offline, the weather stays at the last known state
   }
 }
 
-export async function startMarket({ symbols, onUpdate }) {
+// Called after the ledger, plans or settings change, so a new US ticker or turning on usHistory doesn't wait for the
+// next hourly check. A call during a download runs once more afterwards: that download read the holdings before this change
+export function updateMarket() {
+  if (updating) {
+    again = true
+    return updating
+  }
+  updating = update().finally(() => {
+    updating = null
+    if (again) {
+      again = false
+      updateMarket()
+    }
+  })
+  return updating
+}
+
+// wants: async () => ({ records, usHistory }); onUpdate: called after new data is saved
+export async function startMarket(options) {
+  ({ wants, onUpdate } = options)
   try {
     if (existsSync(CACHE)) market = JSON.parse(await readFile(CACHE, 'utf8'))
   } catch {
     market = null // Refetch if the cache is corrupt
   }
-  update(symbols, onUpdate)
-  setInterval(() => update(symbols, onUpdate), 3_600_000)
+  updateMarket()
+  setInterval(updateMarket, 3_600_000)
 }

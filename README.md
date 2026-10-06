@@ -51,13 +51,13 @@ All defaults are defined at the top of [`engine/index.js`](engine/index.js); cha
 | Size | Principal under NT$30,000 is Lv1; NT$30,000 Lv2, NT$100,000 Lv3, NT$300,000 Lv4, NT$1,000,000 Lv5 |
 | Principal | Purchase amount + fees; a sale removes shares at **average cost**, so the sale price doesn't matter |
 | Fullness | One period = 31 days, plus a 7-day grace period; each missed period costs one bowl (🍚🍚🍚 → minimum 0). **It never starves to death** |
-| Weather | TAIEX up or flat ☀️ sunny; down 🌧️ rain; down 3% or more 🌀 typhoon |
+| Weather | Index up or flat ☀️ sunny; down 🌧️ rain; down 3% or more 🌀 typhoon. The index is the TAIEX, or the S&P 500 when more of your principal is in US stocks |
 | Mood | Your holdings up 1% or more on the day 😊 happy (bounces faster, ^ ^ eyes); down 1% or more 😢 sad (droopy eyes, a tear); otherwise calm |
 | Fur | Market value 5% or more above cost ✨ shiny; 5% or more below cost dull; otherwise normal |
 
 > The speech bubble only shows the level, mood and fur, never your amounts or returns, because anyone walking past can see a desktop pet.
 
-Right-click → "寵物設定…" (Pet settings) lets you adjust the **contribution period** (weekly, every two weeks, monthly, quarterly), the **grace days**, the **size thresholds**, and the **thresholds** for weather, mood and fur. The table above shows the defaults. Hatching and adulthood depend only on time and can't be adjusted. Settings are stored in `settings.json` in the NestEgg data folder, which only records values that differ from the defaults.
+Right-click → "寵物設定…" (Pet settings) lets you adjust the **contribution period** (weekly, every two weeks, monthly, quarterly), the **grace days**, the **size thresholds**, and the **thresholds** for weather, mood and fur, and whether to look up US price history (see US stocks below). The table above shows the defaults. Hatching and adulthood depend only on time and can't be adjusted. Settings are stored in `settings.json` in the NestEgg data folder, which only records values that differ from the defaults.
 
 #### What the market gives → only weather, mood and fur
 
@@ -65,10 +65,14 @@ Price moves only change how the pet looks *today*. They **never affect growth, s
 
 | Environment | Source | Status |
 |---|---|---|
-| ☀️ 🌧️ 🌀 Weather | TAIEX change on the latest trading day. In the rain the pet huddles and barely moves; in a typhoon it shivers | ✅ |
+| ☀️ 🌧️ 🌀 Weather | The index change on the latest trading day: the TAIEX, or the S&P 500 when more of your principal is in US stocks. In the rain the pet huddles and barely moves; in a typhoon it shivers | ✅ |
 | 😊 😐 😢 Mood | Your holdings' change on the latest trading day | ✅ |
 | ✨ Fur | Your holdings' market value compared with their cost (unrealized gain or loss) | ✅ |
 | 🍎 Fruit | Drops when you receive a dividend; you can choose to reinvest it (feed it to the pet) | Planned |
+
+**US stocks.** Tickers that don't start with a digit (VOO, QQQ, BRK.B) are priced from Nasdaq's public tables of every listed US stock and ETF, and converted to NT$ with TAIFEX's daily USD/NTD rate. VOO's change stands in for the S&P 500. Nasdaq's tables are sometimes a session behind; the speech bubble shows the date of the prices.
+
+Contributions recorded without shares (recurring plans) count toward the mood at cost. For the fur, NestEgg needs the close on each debit day to know how much each contribution bought, and that takes one lookup per ticker. Turn on "逐檔查美股歷史價格" (Look up US price history) in pet settings to allow it. It's off by default because it tells Nasdaq which tickers you hold (never amounts, who you are, or when you started; the lookups always cover whole years from a fixed point). The gain is then the fund's return in US dollars, leaving out currency moves.
 
 #### Evolution branches = investing styles (planned)
 
@@ -101,7 +105,7 @@ After a while, the pet evolves into a different form based on your behavior. **N
   Recurring plans (`plans.json`) and pet settings (`settings.json`) are kept in the same folder.
 - There is no backend server, and no user data is collected
 - Only two things go online:
-  - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**
+  - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours; with US holdings, also Nasdaq's tables of every US stock and ETF and TAIFEX's exchange rates. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**. The one exception is opt-in: with "逐檔查美股歷史價格" (Look up US price history) on, the US tickers in your recurring plans are looked up one by one (see US stocks above)
   - "證券帳戶同步" (Broker account sync), only if you set it up. It only connects to that broker's own servers (for Sinopac, through a temporary server that the official program runs on your computer)
 - Broker login details (for Fubon: your national ID number, API key and certificate password; the optional one-time history key is never stored) are encrypted with the system keychain (macOS Keychain / Windows DPAPI) and stored only on this computer
 
@@ -171,7 +175,7 @@ UTF-8 files saved from Excel (with a BOM) and Windows line endings import fine. 
 If you invest the same amount on the same day every month, set it up once: right-click → "定期定額計畫…" (Recurring plans), then enter the symbol, the monthly amount in NT$, the debit day and the start date. Every month the pet counts that contribution automatically, with nothing to import or type.
 
 - This is the way to raise the pet on **US stocks bought through 複委託 (sub-brokerage)**: the Fubon, Sinopac and Cathay APIs can't read sub-brokerage accounts. It works for Taiwan stocks too
-- Only the money is recorded (shares are 0). That's all the pet needs for age, fullness and size; mood and fur need prices, which NestEgg only has for Taiwan stocks
+- Only the money is recorded (shares are 0). That's all the pet needs for age, fullness and size, and it moves the mood with the day's prices. For US tickers the fur can count it too, with US price history turned on (see US stocks above)
 - Enter the NT$ amount actually debited, fees included; with foreign-currency settlement, an approximate NT$ amount is fine. A debit day on a weekend or holiday doesn't matter, thanks to the grace period
 - To change the amount, give the plan an end date and add a new one. Ending a plan keeps its past contributions; deleting it removes them
 - Plans are kept in `plans.json` and added up whenever the pet is evaluated, so the ledger only holds your real records. If you also import, type or sync the same contributions, pick one source to avoid counting them twice
@@ -230,7 +234,7 @@ flowchart LR
     L --> E["Pet engine (main process)"]
     E -->|state| P["Desktop pet window (renderer)"]
   end
-  T["TWSE / TPEx OpenAPI<br/>public closing prices"] -->|whole table, every 6 hours| E
+  T["TWSE / TPEx OpenAPI, Nasdaq, TAIFEX<br/>public closing prices and USD/NTD"] -->|whole tables, every 6 hours| E
 ```
 
 The pet engine is a **pure function** with no hidden state:
@@ -246,7 +250,7 @@ The same data always raises the same pet, so the engine is fully testable and ca
 ```
 nestegg/
 ├── engine/    # Pet rules + CSV parsing (pure JS, no dependencies) and tests
-├── sync/      # External data conversion (pure functions) and tests: broker data → ledger rows, TWSE closing prices → market data
+├── sync/      # External data conversion (pure functions) and tests: broker data → ledger rows, TWSE / Nasdaq closing prices → market data
 ├── app/       # Electron desktop pet, context menu, pixel art, pet settings, broker setup wizard
 │   └── brokers/   # One adapter per broker
 └── example/   # Sample trade records
@@ -372,13 +376,13 @@ This project is not affiliated with any securities firm.
 | 體型 | 本金 < 3 萬 Lv1、3 萬 Lv2、10 萬 Lv3、30 萬 Lv4、100 萬 Lv5 |
 | 本金 | 買入金額 + 手續費；賣出時按**平均成本**扣除，賣價高低不影響 |
 | 飽足 | 一期 = 31 天，另有 7 天寬限；每漏一期少一碗（🍚🍚🍚 → 最低 0），**不會餓死** |
-| 天氣 | 加權指數上漲或平盤 ☀️ 晴；下跌 🌧️ 雨；跌 3% 以上 🌀 颱風 |
+| 天氣 | 指數上漲或平盤 ☀️ 晴；下跌 🌧️ 雨；跌 3% 以上 🌀 颱風。指數看加權指數；美股本金比較多時看 S&P 500 |
 | 心情 | 持股當日漲 1% 以上 😊 開心（跳得比較快、^ ^ 瞇眼）；跌 1% 以上 😢 難過（眼睛垂下、掉眼淚）；其餘平靜 |
 | 毛色 | 持股市值比成本高 5% 以上 ✨ 發亮；低 5% 以上 黯淡；其餘普通 |
 
 > 氣泡裡只顯示 Lv 與心情毛色，不顯示你的金額或報酬率 —— 桌面寵物別人路過也看得到。
 
-右鍵 →「寵物設定…」可以調**投入週期**（每週、每兩週、每月、每季）、**寬限天數**、**體型門檻**，以及天氣、心情、毛色的**門檻**。上表是預設值。孵化、成年只看時間，不開放調整。設定存在 NestEgg 資料夾的 `settings.json`，只記跟預設不一樣的項目。
+右鍵 →「寵物設定…」可以調**投入週期**（每週、每兩週、每月、每季）、**寬限天數**、**體型門檻**，以及天氣、心情、毛色的**門檻**，還有要不要逐檔查美股歷史價格（見下方「美股」）。上表是預設值。孵化、成年只看時間，不開放調整。設定存在 NestEgg 資料夾的 `settings.json`，只記跟預設不一樣的項目。
 
 #### 市場給的 → 只影響天氣、心情、毛色
 
@@ -386,10 +390,14 @@ This project is not affiliated with any securities firm.
 
 | 環境 | 來源 | 狀態 |
 |---|---|---|
-| ☀️ 🌧️ 🌀 天氣 | 加權指數最近一個交易日的漲跌。下雨時寵物縮著不太動，颱風時發抖 | ✅ |
+| ☀️ 🌧️ 🌀 天氣 | 指數最近一個交易日的漲跌：加權指數；美股本金比較多時看 S&P 500。下雨時寵物縮著不太動，颱風時發抖 | ✅ |
 | 😊 😐 😢 心情 | 你的持股最近一個交易日的漲跌 | ✅ |
 | ✨ 毛色 | 你的持股市值相對成本（未實現損益） | ✅ |
 | 🍎 果實 | 收到配息時掉落；你可以選擇再投入（餵牠吃掉） | 規劃中 |
+
+**美股。** 不是數字開頭的代號（VOO、QQQ、BRK.B）用 Nasdaq 公開的全部美股與 ETF 價格表計價，再用期交所每日的美元兌台幣匯率換成台幣。S&P 500 的漲跌用 VOO 代表。Nasdaq 的表有時會晚一個交易日，氣泡會顯示價格的日期。
+
+沒有股數的投入（定期定額計畫）會以成本算進心情。毛色則要知道每個扣款日的收盤價，才算得出每次買到多少，這只能一檔一檔查。在寵物設定打開「逐檔查美股歷史價格」才會這樣查。預設關閉，因為 Nasdaq 會知道有人查了哪些代號（不會知道金額、你是誰或什麼時候開始買；查詢一律從固定的年初開始）。這樣算出的報酬是基金的美元報酬，不含匯率變動。
 
 #### 進化分支 = 投資風格（規劃中）
 
@@ -422,7 +430,7 @@ This project is not affiliated with any securities firm.
   定期定額計畫（`plans.json`）與寵物設定（`settings.json`）也放在同一個資料夾。
 - 沒有後端伺服器，不收集任何使用者資料
 - 會連網的只有兩件事：
-  - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**
+  - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次；有美股的話，也下載 Nasdaq 的全部美股與 ETF 價格表和期交所的匯率。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**。唯一的例外要你自己打開：開啟「逐檔查美股歷史價格」後，定期定額計畫裡的美股代號會一檔一檔查（見上方「美股」）
   - 「證券帳戶同步」（有設定才會），只連你設定的那家券商自己的伺服器（永豐是透過官方程式在本機開的暫時伺服器）
 - 券商的登入資料（例如富邦的身分證字號、API Key 與憑證密碼；選用的一次性歷史匯入金鑰不會儲存）用系統鑰匙圈（macOS Keychain / Windows DPAPI）加密後只存在這台電腦
 
@@ -492,7 +500,7 @@ Excel 另存的 UTF-8（含 BOM）與 Windows 換行都可以直接匯入。格�
 每月固定日期、固定金額的投入，設定一次就好：右鍵 →「定期定額計畫…」，填標的代號、每月台幣金額、扣款日和開始日期。之後每個月寵物會自動算進這筆投入，不用匯入、也不用手動記帳。
 
 - **複委託買的美股**用這個方式養寵物：富邦、永豐、國泰的 API 都查不到複委託帳戶。台股也可以用
-- 只記投入的金額（股數是 0）。寵物的年齡、飽足、體型只需要這些；心情和毛色要有價格，NestEgg 目前只有台股的價格
+- 只記投入的金額（股數是 0）。寵物的年齡、飽足、體型只需要這些，心情也會跟著當天的漲跌變。美股打開「逐檔查美股歷史價格」後，毛色也會算進去（見上方「美股」）
 - 金額填每月實際扣款的台幣（含手續費）；外幣交割的話，填大約的台幣金額就好。扣款日遇到週末或假日也沒關係，寵物有寬限
 - 要改金額：在原計畫填上結束日期，再新增一個。填結束日期會保留已經記的投入；刪除計畫則會一起拿掉
 - 計畫存在 `plans.json`，每次計算寵物時才加總，所以帳本裡只有你的真實紀錄。同一筆投入如果也用匯入、手動記帳或券商同步，請擇一來源，以免重複
@@ -551,7 +559,7 @@ flowchart LR
     L --> E["寵物引擎（main process）"]
     E -->|state| P["桌面寵物視窗（renderer）"]
   end
-  T["證交所／櫃買中心 OpenAPI<br/>公開收盤資料"] -->|整張表格，每 6 小時| E
+  T["證交所／櫃買中心 OpenAPI、Nasdaq、期交所<br/>公開收盤資料與美元匯率"] -->|整張表格，每 6 小時| E
 ```
 
 寵物引擎是一個**純函式**，沒有隱藏狀態：
@@ -567,7 +575,7 @@ petState = evaluate(ledger, today, market, settings)
 ```
 nestegg/
 ├── engine/    # 寵物規則 + CSV 解析（純 JS，無依賴）與測試
-├── sync/      # 外部資料轉換（純函式）與測試：富邦成交紀錄 → 帳本列、證交所收盤資料 → 行情
+├── sync/      # 外部資料轉換（純函式）與測試：富邦成交紀錄 → 帳本列、證交所與 Nasdaq 收盤資料 → 行情
 ├── app/       # Electron 桌面寵物、右鍵選單、像素圖、券商設定精靈
 │   └── brokers/   # 每家券商一個 adapter
 └── example/   # 範例交易紀錄

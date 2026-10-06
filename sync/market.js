@@ -20,3 +20,45 @@ export function parseMarket(index, twse, tpex = []) {
     prices,
   }
 }
+
+// US market: Nasdaq's screener tables (every listed stock and ETF in one download, like the TWSE table) and TAIFEX's
+// daily USD/NTD rate. Prices stay in US dollars; fx converts holdings with shares to NT$.
+// Nasdaq writes class shares as BRK/B; ledgers write BRK.B
+const ticker = s => String(s).trim().replace('/', '.')
+const number = s => Number.parseFloat(String(s).replace(/[$,%]/g, '')) // "$707.5400", "0.73%"; "NA" becomes NaN
+const usDate = s => {
+  const [m, d, y] = String(s).split(' ')[0].split('/')
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+}
+
+// stocks: /api/screener/stocks rows; etfs: /api/screener/etf data ({ dataAsOf, data: { rows } }); fx: DailyForeignExchangeRates
+export function parseUs(stocks, etfs, fx) {
+  const prices = {}
+  const add = (symbol, close, change) => {
+    const c = number(close)
+    const d = number(change)
+    if (c > 0) prices[ticker(symbol)] = { close: c, change: Number.isFinite(d) ? d : 0 }
+  }
+  for (const r of stocks) add(r.symbol, r.lastsale, r.netchange)
+  for (const r of etfs.data.rows) add(r.symbol, r.lastSalePrice, r.netChange)
+  // The weather follows the S&P 500; VOO tracks it and is in the same table, so its change stands in for the index
+  const voo = prices.VOO
+  if (!voo) throw new Error('Nasdaq 資料裡找不到 VOO')
+  const rate = number(fx.at(-1)?.['USD/NTD'])
+  if (!(rate > 0)) throw new Error('期交所資料裡找不到美元匯率')
+  return {
+    date: usDate(etfs.dataAsOf),
+    indexChange: Math.round((voo.change / (voo.close - voo.change)) * 10_000) / 100,
+    fx: rate,
+    prices,
+  }
+}
+
+// Daily closes from /api/quote/{symbol}/historical (newest first) → [[date, close], …] oldest first.
+// An unknown symbol answers without data: that's an empty history, not an error
+export function parseHistory(res) {
+  return (res?.data?.tradesTable?.rows ?? [])
+    .map(r => [usDate(r.date), number(r.close)])
+    .filter(([, close]) => close > 0)
+    .reverse()
+}

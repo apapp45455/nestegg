@@ -12,7 +12,7 @@ export const ADULT_DAYS = 365 // Days until adulthood
 export const SETTINGS = {
   period: { value: 31, min: 7, max: 92, step: 1 }, // Contribution period (days): monthly 31, weekly 7, quarterly 92
   grace: { value: 7, min: 0, max: 30, step: 1 }, // Grace days for debit dates that fall on holidays and late syncs
-  typhoon: { value: 3, min: 0.5, max: 10, step: 0.5 }, // TAIEX one-day drop of at least this % → typhoon (other drops → rain)
+  typhoon: { value: 3, min: 0.5, max: 10, step: 0.5 }, // Index (TAIEX or S&P 500) one-day drop of at least this % → typhoon (other drops → rain)
   mood: { value: 1, min: 0.1, max: 10, step: 0.1 }, // Holdings' one-day change of at least ± this % → happy / sad
   fur: { value: 5, min: 0.5, max: 50, step: 0.5 }, // Holdings' market value at least ± this % from cost → shiny / dull fur
   // Principal (in units of NT$10,000) needed for each size level (Lv1 → Lv5); adjustable because people's asset levels differ widely
@@ -20,6 +20,9 @@ export const SETTINGS = {
   lv3: { value: 10, min: 0.1, max: 10_000, step: 0.1 },
   lv4: { value: 30, min: 0.1, max: 10_000, step: 0.1 },
   lv5: { value: 100, min: 0.1, max: 10_000, step: 0.1 },
+  // Download each US ticker's daily closes so recurring plans count toward the fur; off by default because it tells
+  // Nasdaq which tickers are held (see app/market.js)
+  usHistory: { value: false },
 }
 export const LEVELS = ['lv2', 'lv3', 'lv4', 'lv5']
 // The settings file may be edited badly by hand: any value that isn't a number, is out of range, or is a non-integer day count falls back to its default;
@@ -27,6 +30,7 @@ export const LEVELS = ['lv2', 'lv3', 'lv4', 'lv5']
 export function parseSettings(input) {
   const s = Object.fromEntries(Object.entries(SETTINGS).map(([key, { value, min, max, step }]) => {
     const v = input?.[key]
+    if (typeof value === 'boolean') return [key, typeof v === 'boolean' ? v : value]
     return [key, typeof v === 'number' && v >= min && v <= max && (step < 1 || Number.isInteger(v)) ? v : value]
   }))
   if (LEVELS.some((key, i) => i && s[key] <= s[LEVELS[i - 1]])) for (const key of LEVELS) s[key] = SETTINGS[key].value
@@ -78,25 +82,61 @@ export const mergeLedger = (existing, incoming) => [...existing, ...unmatched(in
 // Remove the batch the last sync wrote (each row once; rows already deleted by hand are skipped)
 export const removeRows = (ledger, rows) => unmatched(ledger, rows)
 
-// market (optional): { date, indexChange: TAIEX change in %, prices: { code: { close, change } } }
-function marketMood(holdings, market, s) {
-  if (!market) return { weather: null, mood: null, fur: null }
-  const weather = market.indexChange >= 0 ? 'sunny' : market.indexChange > -s.typhoon ? 'rain' : 'typhoon'
-  let value = 0, prev = 0, cost = 0
-  for (const [symbol, h] of holdings) {
-    const p = market.prices[symbol]
-    if (!p || !h.shares) continue // Holdings without a closing price (for example, overseas assets) are left out
-    value += h.shares * p.close
-    prev += h.shares * (p.close - p.change)
-    cost += h.cost
+// market (optional): { date, indexChange: TAIEX change in %, prices: { code: { close, change } },
+//   us: { date, indexChange: S&P 500 change in %, fx: NT$ per US$, prices: { ticker: { close, change } } } (when US tickers are held),
+//   history: { ticker: { closes: [[date, close], …] } } (opt-in, for US tickers bought by amount only) }
+// Taiwan codes start with a digit, US tickers never do
+const isTw = symbol => /^\d/.test(symbol)
+
+// Amount-only buys (recurring plans) have no shares to value. With a ticker's daily closes, each buy is valued from the
+// close on or after its debit day (the order fills in the next session): units = NT$ / US$ close, worth units × today's
+// close in NT$. Currency moves since then are left out, so this is the fund's return in US dollars
+function planUnits(ledger, today, history) {
+  const units = new Map() // symbol → { units, cost }
+  for (const r of ledger) {
+    const closes = history?.[r.symbol]?.closes
+    if (r.action !== 'buy' || r.shares || r.date > today || !closes?.length) continue
+    const close = (closes.find(([date]) => date >= r.date) ?? closes.at(-1))[1] // Not priced yet: the latest close
+    const u = units.get(r.symbol) ?? { units: 0, cost: 0 }
+    u.units += (r.amount + r.fee) / close
+    u.cost += r.amount + r.fee
+    units.set(r.symbol, u)
   }
-  if (!value) return { weather, mood: null, fur: null }
+  return units
+}
+
+function marketMood(held, ledger, today, market, s) {
+  if (!market) return { weather: null, mood: null, fur: null, marketDate: null, indexChange: null, indexName: null }
+  // The weather follows the market holding more of the principal (Taiwan when equal, or with no holdings yet)
+  const principalIn = tw => [...held].reduce((n, [symbol, h]) => (isTw(symbol) === tw ? n + h.cost + h.amountOnly : n), 0)
+  const index = market.us && principalIn(false) > principalIn(true)
+    ? { indexName: 'S&P 500', marketDate: market.us.date, indexChange: market.us.indexChange }
+    : { indexName: '加權', marketDate: market.date, indexChange: market.indexChange }
+  const weather = index.indexChange >= 0 ? 'sunny' : index.indexChange > -s.typhoon ? 'rain' : 'typhoon'
+
+  const plans = planUnits(ledger, today, s.usHistory ? market.history : null)
+  let value = 0, prev = 0, worth = 0, cost = 0 // value vs prev: the day's change (mood); worth vs cost: gain or loss (fur)
+  for (const [symbol, h] of held) {
+    const p = isTw(symbol) ? market.prices[symbol] : market.us?.prices[symbol]
+    if (!p) continue // Holdings without a closing price are left out
+    const fx = isTw(symbol) ? 1 : market.us.fx
+    const plan = plans.get(symbol) ?? { units: 0, cost: 0 }
+    const shares = h.shares * p.close * fx
+    const planned = plan.units * p.close
+    // Amount-only money without a known buy price: its gain is unknown, so it only weighs in the day's change, at cost
+    const unknown = h.amountOnly - plan.cost
+    value += shares + planned + unknown
+    prev += (shares + planned + unknown) * (1 - p.change / p.close)
+    worth += shares + planned
+    cost += (h.shares ? h.cost : 0) + plan.cost
+  }
   const day = (value / prev - 1) * 100
-  const gain = (value / cost - 1) * 100
+  const gain = (worth / cost - 1) * 100
   return {
     weather,
-    mood: day >= s.mood ? 'happy' : day <= -s.mood ? 'sad' : 'calm',
-    fur: gain >= s.fur ? 'shiny' : gain <= -s.fur ? 'dull' : 'normal',
+    mood: !value ? null : day >= s.mood ? 'happy' : day <= -s.mood ? 'sad' : 'calm',
+    fur: !cost ? null : gain >= s.fur ? 'shiny' : gain <= -s.fur ? 'dull' : 'normal',
+    ...index,
   }
 }
 
@@ -130,7 +170,7 @@ export function evaluate(ledger, today, market = null, settings = {}) {
   const held = holdings(ledger, today)
   const buys = ledger.filter(r => r.action === 'buy' && r.date <= today).map(r => r.date).sort()
   const [firstBuy, lastBuy] = [buys[0], buys.at(-1)]
-  const env = { ...marketMood(held, market, s), marketDate: market?.date ?? null, indexChange: market?.indexChange ?? null }
+  const env = marketMood(held, ledger, today, market, s)
   if (!firstBuy) return { stage: 'none', age: 0, size: 1, satiety: 3, ...env }
 
   const principal = [...held.values()].reduce((s, h) => s + h.cost + h.amountOnly, 0)

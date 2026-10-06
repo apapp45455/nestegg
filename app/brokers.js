@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { addDays, isDate, removeRows } from '../engine/index.js'
 import fubon from './brokers/fubon.js'
 import sinopac from './brokers/sinopac.js'
+import { writeAtomic } from './files.js'
 
 const BROKERS = Object.fromEntries([fubon, sinopac].map(b => [b.id, b]))
 const run = promisify(execFile)
@@ -26,10 +27,7 @@ const configFile = b => join(home(b), 'config.json')
 const rowsFile = b => join(home(b), 'rows.json') // Snapshot brokers: the batch the last sync wrote to the ledger
 
 const readJson = async (file, fallback) => (existsSync(file) ? JSON.parse(await readFile(file, 'utf8')) : fallback)
-const writeJson = async (file, data) => {
-  await writeFile(`${file}.tmp`, JSON.stringify(data, null, 2)) // Same as the ledger: write a temp file, then rename
-  await rename(`${file}.tmp`, file)
-}
+const writeJson = (file, data) => writeAtomic(file, JSON.stringify(data, null, 2)) // Same as the ledger
 const readConfig = b => readJson(configFile(b), null)
 const writeConfig = async (b, cfg) => {
   await mkdir(home(b), { recursive: true })
