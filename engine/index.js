@@ -135,3 +135,46 @@ export function evaluate(ledger, today, market = null, settings = {}) {
     ...env,
   }
 }
+
+// Recurring contributions (定期定額計畫): a plan records the same NT$ amount on the same day every month, so people
+// whose broker can't be synced (for example US stocks bought through 複委託) don't have to enter each one.
+// Plans live in their own file and are expanded on the fly, so editing or deleting one never leaves stale ledger rows.
+// Only the money counts (shares: 0): enough for age, fullness and size; mood and fur need prices anyway.
+// The UI saves only valid plans; a plan file edited badly by hand throws, and the pet shows the error like a bad ledger.
+export function parsePlans(input) {
+  if (!Array.isArray(input)) throw new Error('定期定額計畫的格式不對')
+  return input.map((p, i) => {
+    const plan = {
+      symbol: String(p?.symbol ?? '').trim().toUpperCase(),
+      amount: Number(p?.amount),
+      day: Number(p?.day),
+      start: String(p?.start ?? ''),
+      end: p?.end ? String(p.end) : null,
+    }
+    const problem =
+      !/^[0-9A-Z][0-9A-Z.-]{0,11}$/.test(plan.symbol) ? '請填標的代號，例如 0050 或 VOO'
+        : !(Number.isInteger(plan.amount) && plan.amount > 0) ? '每月金額要是大於 0 的整數（台幣）'
+          : !(Number.isInteger(plan.day) && plan.day >= 1 && plan.day <= 31) ? '扣款日要是 1 到 31'
+            : !isDate(plan.start) ? '請選開始日期'
+              : plan.end && !(isDate(plan.end) && plan.end >= plan.start) ? '結束日期要在開始日期之後'
+                : null
+    if (problem) throw new Error(`第 ${i + 1} 個計畫：${problem}`)
+    return plan
+  })
+}
+
+// The ledger rows a list of plans adds up to by `today`: one buy per month on the plan's day (the last day of a
+// shorter month), from the start date through the end date if any
+export function planRows(plans, today) {
+  const rows = []
+  for (const p of plans) {
+    const last = p.end && p.end < today ? p.end : today
+    for (let y = +p.start.slice(0, 4), m = +p.start.slice(5, 7); ; m === 12 ? (y++, m = 1) : m++) {
+      const day = Math.min(p.day, new Date(Date.UTC(y, m, 0)).getUTCDate())
+      const date = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      if (date > last) break
+      if (date >= p.start) rows.push({ date, symbol: p.symbol, action: 'buy', shares: 0, amount: p.amount, fee: 0 })
+    }
+  }
+  return rows
+}

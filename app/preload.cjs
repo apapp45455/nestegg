@@ -22,3 +22,7 @@ contextBridge.exposeInMainWorld('broker', {
 
 // For the pet settings window: get returns { values, limits }; set saves and returns the values actually used (invalid ones become defaults)
 contextBridge.exposeInMainWorld('petSettings', { get: invoke('settings:get'), set: invoke('settings:set') })
+
+// For the recurring plans window: get and set both return { today, plans } with each plan's count and total so far;
+// set rejects invalid plans with a message that names the problem
+contextBridge.exposeInMainWorld('plans', { get: invoke('plans:get'), set: invoke('plans:set') })

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>定期定額計畫</title>
+  <link rel="stylesheet" href="setup.css">
+  <style>
+    .plans { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 12px; }
+    .plans li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 8px; }
+    .plans .title { font-weight: 700; font-size: 15px; }
+    .plans .row label { display: flex; align-items: center; gap: 6px; font-weight: 400; }
+    .plans .ended { color: var(--muted); }
+    fieldset { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px 16px 14px; margin: 0; display: grid; gap: 12px; }
+    legend { font-weight: 700; padding: 0 4px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>定期定額計畫</h1>
+    <p>每月固定日期、固定金額的投入（台股、複委託美股都可以）設定一次，寵物每個月會自動記一筆。只記投入的台幣金額，不記股數。</p>
+  </header>
+
+  <ul id="plans" class="plans"></ul>
+  <p id="empty" class="note" hidden>還沒有計畫。</p>
+
+  <form id="add">
+    <fieldset>
+      <legend>新增計畫</legend>
+      <div class="two">
+        <label>標的代號
+          <input name="symbol" placeholder="VOO 或 0050" autocomplete="off" spellcheck="false" autocapitalize="characters" required>
+        </label>
+        <label>每月金額（台幣）
+          <input name="amount" type="number" inputmode="numeric" min="1" step="1" required>
+        </label>
+        <label>扣款日（每月幾號）
+          <input name="day" type="number" inputmode="numeric" min="1" max="31" step="1" required>
+        </label>
+        <label>開始日期
+          <input name="start" type="date" required>
+        </label>
+      </div>
+      <div><button type="submit" class="primary">新增計畫</button></div>
+    </fieldset>
+  </form>
+  <p id="result" role="status"></p>
+
+  <footer class="note">
+    <p>金額填每月實際扣款的台幣（含手續費）。用外幣交割的話，填大約的台幣金額就好。扣款日遇到假日也沒關係，寵物有寬限。</p>
+    <p>要改金額：在原計畫填上結束日期，再新增一個新的計畫。要停扣也是填結束日期；刪除計畫的話，已經記的投入會一起拿掉。</p>
+    <p>同一筆投入如果也用 CSV 匯入、手動記帳或券商同步，請擇一來源，以免重複。</p>
+  </footer>
+</main>
+<script src="plans.js"></script>
+</body>
+</html>

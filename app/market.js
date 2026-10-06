@@ -28,8 +28,9 @@ async function update(symbols, onUpdate) {
   try {
     const [index, twse] = await Promise.all([getJson(URLS.index), getJson(URLS.twse)])
     const listed = new Set(twse.map(r => r.Code))
-    // The TPEx table is over 4 MB; only download it when holdings include codes not listed on TWSE (for example, bond ETFs)
-    const tpex = (await symbols()).some(s => !listed.has(s)) ? await getJson(URLS.tpex) : []
+    // The TPEx table is over 4 MB; only download it when holdings include Taiwan codes not listed on TWSE (for example,
+    // bond ETFs). Taiwan codes start with a digit; US tickers such as VOO never appear in either table
+    const tpex = (await symbols()).some(s => /^\d/.test(s) && !listed.has(s)) ? await getJson(URLS.tpex) : []
     market = { ...parseMarket(index, twse, tpex), fetchedAt: Date.now() }
     await writeFile(`${CACHE}.tmp`, JSON.stringify(market))
     await rename(`${CACHE}.tmp`, CACHE)

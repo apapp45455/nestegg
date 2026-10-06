@@ -22,6 +22,8 @@ mkdirSync(SDK, { recursive: true })
 cpSync(join(import.meta.dirname, 'fake-fubon-sdk'), SDK, { recursive: true })
 const CERT = join(DATA, 'test-cert.pfx')
 writeFileSync(CERT, 'not a real certificate')
+// Local date, like the app's today()
+const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10)
 // Sinopac: pretend the Shioaji command-line program is installed; the step that really starts the server is replaced by the fake server below
 const SHIOAJI = join(DATA, 'sinopac', 'package')
 mkdirSync(SHIOAJI, { recursive: true })
@@ -55,7 +57,7 @@ process.on('uncaughtException', e => crashes.push(e.message))
 process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
-const { openSettings } = await import('../app/main.js')
+const { openPlans, openSettings } = await import('../app/main.js')
 const { openSetup, syncSaved } = await import('../app/brokers.js') // Calling syncSaved directly = the auto sync path
 const { default: sinopac } = await import('../app/brokers/sinopac.js')
 let shioajiStops = 0
@@ -381,6 +383,43 @@ async function runAll() {
     assert.equal(await page('window.petSettings.get().then(r => r.values.mood)', settings()), 1)
     rmSync(file)
     settings().close()
+  })
+
+  await test('定期定額計畫：設定一次，每月的投入自動算進寵物；填錯不存；結束或刪除後拿掉', async () => {
+    openPlans()
+    const plans = () => windowAt('/plans.html')
+    const file = join(DATA, 'plans.json')
+    await until('document.getElementById("empty").hidden', v => v === false, '計畫視窗載入', 15_000, plans)
+    const before = await page('state.size')
+    assert.ok(before < 5, `目前是 Lv${before}`)
+    const fill = values => page(`(f => { ${Object.entries(values).map(([k, v]) => `f.elements.${k}.value = ${JSON.stringify(v)};`).join(' ')} f.requestSubmit(); 0 })(document.getElementById('add'))`, plans())
+    // US stocks through 複委託: NT$30,000 on the 1st of every month for the last two years
+    const start = new Date(Date.parse(today()) - 730 * 864e5).toISOString().slice(0, 10)
+    await fill({ symbol: 'voo', amount: '30000', day: '1', start })
+    await until('state.size', v => v > before, '計畫的投入讓寵物變大')
+    assert.equal(JSON.parse(readFileSync(file, 'utf8'))[0].symbol, 'VOO')
+    assert.match(await page('document.getElementById("plans").textContent', plans()), /VOO · 每月 1 日 · NT\$30,000.*已記 2[45] 筆/)
+    // Invalid in a way the form can't catch (the form itself blocks an amount of 0): not saved, and the window says why
+    await fill({ symbol: '台積電', amount: '5000', day: '6', start })
+    assert.match(await until('document.getElementById("result").textContent', v => v, '錯誤訊息', 15_000, plans), /第 2 個計畫：請填標的代號/)
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).length, 1)
+    // Ending the plan two months in keeps only those contributions
+    const end = new Date(Date.parse(start) + 60 * 864e5).toISOString().slice(0, 10)
+    await page(`(i => { i.value = ${JSON.stringify(end)}; i.dispatchEvent(new Event('change')); 0 })(document.querySelector('#plans input[type=date]'))`, plans())
+    await until('document.getElementById("plans").textContent', v => /已記 2 筆，共 NT\$60,000（已結束）/.test(v), '結束後只剩兩筆', 15_000, plans)
+    // Deleting it removes the plan and its contributions entirely
+    await page('window.confirm = () => true; document.querySelector("#plans button").click(); 0', plans())
+    await until('document.getElementById("empty").hidden', v => v === false, '刪除後沒有計畫', 15_000, plans)
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), [])
+    await until('state.size', v => v === before, '刪除後回到原本的體型')
+    // A plan file broken by hand: the pet says so instead of silently shrinking
+    writeFileSync(file, '[{ 壞掉')
+    await page('window.petSettings.set({}); 0', plans()) // Any save refreshes the pet
+    await until('bubble.textContent', v => /定期定額計畫讀取失敗/.test(v ?? ''), '計畫檔壞掉的提示')
+    rmSync(file)
+    await page('window.petSettings.set({}); 0', plans())
+    await until('bubble.hidden', v => v === true, '修好後提示消失')
+    plans().close()
   })
 
   await test('畫面：寵物真的有畫出來', async () => {
