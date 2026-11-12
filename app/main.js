@@ -91,7 +91,9 @@ export async function importCsv() {
     const { added, inserted } = await addRows(parseLedger(await readFile(filePaths[0], 'utf8')))
     // New buys up to today show as the pet eating (see feed in pet.js). Anything else gets a word in the pet's voice:
     // new rows with nothing to eat (sells, future dates), or nothing new at all
-    if (!inserted.some(r => r.action === 'buy' && r.date <= today())) pet()?.webContents.send('say', added ? '收下了～' : '這些紀錄我都吃過了～')
+    const answer = inserted.some(r => r.action === 'buy' && r.date <= today()) ? null : added ? '收下了～' : '這些紀錄我都吃過了～'
+    if (!pet()) dialog.showMessageBox({ message: `匯入完成，新增 ${added} 筆紀錄` }) // No pet window to eat or talk
+    else if (answer) pet().webContents.send('say', answer)
   } catch (e) {
     dialog.showErrorBox('匯入失敗', e.message)
   }
