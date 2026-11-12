@@ -691,6 +691,9 @@ async function runAll() {
     await page('window.plans.set([]); 0')
     await wait(600)
     assert.equal(await page('food.hidden'), true)
+    // At Lv5 the pet is widest: the bowl still fits inside the window
+    const bowl = await page('(size => { state.size = 5; draw(); food.hidden = false; const r = food.getBoundingClientRect(); food.hidden = true; state.size = size; draw(); return [r.left, r.width] })(state.size)')
+    assert.ok(bowl[0] >= 0 && bowl[1] > 0, `碗的位置 ${bowl}`)
   })
 
   await test('匯入 CSV：有新的買進就吃飯；只有賣出或已經匯入過的，寵物用一句話回應，不跳視窗', async () => {

@@ -169,8 +169,11 @@ function draw() {
   }
   const cell = 3 + state.size // Lv1..5 → 4..8px per pixel
   pet.style.width = pet.style.height = `${16 * cell}px`
-  // The bowl uses the pet's pixel size and tucks into the empty columns beside its body
-  Object.assign(food.style, { width: `${8 * cell}px`, height: `${5 * cell}px`, marginRight: `${-2 * cell}px` })
+  // The bowl tucks into the empty columns beside the pet's body and uses its pixel size, shrunk if the space left of
+  // the pet in the window is narrower (a Lv5 pet leaves 36px)
+  const room = (innerWidth - 16 * cell) / 2 + 2 * cell
+  const bowl = Math.min(cell, Math.floor(room / 8))
+  Object.assign(food.style, { width: `${8 * bowl}px`, height: `${5 * bowl}px`, marginRight: `${-2 * cell}px` })
   pet.className = [state.stage, state.satiety < 3 && 'hungry', hatched && state.mood, state.weather, hopping && 'hop', eating && 'eating'].filter(Boolean).join(' ')
   hunger.hidden = state.satiety >= 3
   drawSky()
