@@ -165,8 +165,7 @@ async function autoSync() {
     // Skip brokers that are syncing or installing and check again next hour (also avoids duplicate notices while the previous round is still running)
     if (!cfg || cfg.paused || cfg.lastSync === ctx.today() || running.has(b.id)) continue
     try {
-      const { added } = await syncSaved(b.id)
-      if (added) ctx.say(`${b.name}同步完成，新增 ${added} 筆紀錄`)
+      await syncSaved(b.id) // New buys show as the pet eating (see feed in pet.js), so no message
     } catch (e) {
       if (e.needsUser) ctx.say(`⚠️ ${b.name}同步失敗\n已暫停自動同步\n右鍵 → 證券帳戶同步…`)
       else console.error(`${b.name}同步失敗，下個小時再試：`, e.message)

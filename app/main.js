@@ -89,7 +89,8 @@ async function importCsv() {
   if (canceled) return
   try {
     const { added } = await addRows(parseLedger(await readFile(filePaths[0], 'utf8')))
-    dialog.showMessageBox(win, { message: `匯入完成，新增 ${added} 筆紀錄` })
+    // New buys show as the pet eating; only an import that brought nothing new needs a word, in the pet's voice
+    if (!added) pet()?.webContents.send('say', '這些紀錄我都吃過了～')
   } catch (e) {
     dialog.showErrorBox('匯入失敗', e.message)
   }

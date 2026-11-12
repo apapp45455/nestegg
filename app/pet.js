@@ -100,15 +100,25 @@ const LABELS = {
   fur: { shiny: '發亮', normal: '普通', dull: '黯淡' },
 }
 const STAGE_NAMES = { egg: '蛋', baby: '幼年', adult: '成年' }
+// The food bowl shown while the pet eats a new contribution: kibble (k) in a bowl (b, B)
+const BOWL = {
+  full: ['..k.kk..', '.kkkkkk.', 'bbbbbbbb', '.bbbbbb.', '..BBBB..'],
+  half: ['........', '..kk.k..', 'bbbbbbbb', '.bbbbbb.', '..BBBB..'],
+  empty: ['........', '........', 'bbbbbbbb', '.bbbbbb.', '..BBBB..'],
+}
+const BOWL_COLORS = { k: '#a0612c', b: '#4a90d9', B: '#2f6aa8' }
 
 const pet = document.getElementById('pet')
 const sky = document.getElementById('sky')
 const bubble = document.getElementById('bubble')
 const hunger = document.getElementById('hunger')
+const food = document.getElementById('food')
 const ctx = pet.getContext('2d')
 const skyCtx = sky.getContext('2d')
+const foodCtx = food.getContext('2d')
 let state = { stage: 'none', size: 1, satiety: 3 }
 let blink = false
+let eating = false, hopping = false, feedTimer, hopTimer, lastGreeting
 let tick = 0 // Animation frame: raindrops, sparkles
 let bubbleTimer
 
@@ -157,14 +167,19 @@ function draw() {
   if (hatched && state.fur === 'shiny' && (tick >> 1) % 2) {
     for (const [x, y] of SPARKLES) if (rows[y][x] === '.') px(ctx, x, y, '#ffb703') // Gold: visible on both light and dark wallpapers
   }
-  pet.style.width = pet.style.height = `${16 * (3 + state.size)}px` // Lv1..5 → 4..8px per pixel
-  pet.className = [state.stage, state.satiety < 3 && 'hungry', hatched && state.mood, state.weather].filter(Boolean).join(' ')
+  const cell = 3 + state.size // Lv1..5 → 4..8px per pixel
+  pet.style.width = pet.style.height = `${16 * cell}px`
+  // The bowl uses the pet's pixel size and tucks into the empty columns beside its body
+  Object.assign(food.style, { width: `${8 * cell}px`, height: `${5 * cell}px`, marginRight: `${-2 * cell}px` })
+  pet.className = [state.stage, state.satiety < 3 && 'hungry', hatched && state.mood, state.weather, hopping && 'hop', eating && 'eating'].filter(Boolean).join(' ')
   hunger.hidden = state.satiety >= 3
   drawSky()
 }
 
-function say(text, ms = 5000) {
+// kind marks what the bubble shows, so a tap on a greeting can turn it into the status
+function say(text, ms = 5000, kind = '') {
   bubble.textContent = text
+  bubble.dataset.kind = kind
   bubble.hidden = false
   clearTimeout(bubbleTimer)
   if (ms) bubbleTimer = setTimeout(() => (bubble.hidden = true), ms)
@@ -185,14 +200,77 @@ function status() {
   return lines.join('\n')
 }
 
+// A new contribution, from any source (sync, import, a recurring plan, a hand edit), is shown as eating, not as a message
+function feed() {
+  const frames = ['full', 'full', 'half', 'half', 'empty']
+  let i = 0
+  const next = () => {
+    if (i === frames.length) {
+      clearInterval(feedTimer)
+      eating = false
+      food.hidden = true
+      return draw()
+    }
+    foodCtx.clearRect(0, 0, 8, 5)
+    paint(foodCtx, BOWL[frames[i++]], BOWL_COLORS)
+  }
+  clearInterval(feedTimer)
+  eating = true
+  food.hidden = false
+  next()
+  draw()
+  feedTimer = setInterval(next, 500)
+}
+
+const pick = list => {
+  const choices = list.length > 1 ? list.filter(line => line !== lastGreeting) : list // Not the same line twice in a row
+  return (lastGreeting = choices[Math.floor(Math.random() * choices.length)])
+}
+
+// What the pet says when tapped: picked at random from lines that fit the time of day, its hunger, mood and weather
+function greeting() {
+  if (state.stage === 'egg') return pick(['（蛋輕輕晃了一下）', '喀…喀…', '（裡面好像有動靜）', '（蛋暖暖的）'])
+  const h = new Date().getHours()
+  const lines = [
+    h >= 5 && h < 11 ? '早安！' : h >= 11 && h < 17 ? '午安～' : h >= 17 && h < 23 ? '晚安～' : '這麼晚還沒睡？',
+    '嗨！', '你來啦～', '摸摸頭～', '嘿嘿', '今天也一起慢慢長大', '有你在真好',
+  ]
+  if (state.satiety < 3) lines.push('肚子有點餓…', '想吃飯了 🍚', '肚子咕嚕咕嚕叫')
+  if (state.mood === 'happy') lines.push('今天心情很好！')
+  if (state.mood === 'sad') lines.push('今天有點難過…')
+  if (state.weather === 'sunny') lines.push('今天天氣真好')
+  if (state.weather === 'rain') lines.push('外面在下雨耶')
+  if (state.weather === 'typhoon') lines.push('風好大，好可怕…')
+  if (state.stage === 'adult') lines.push('我已經長大了！')
+  return pick(lines)
+}
+
+function hop() {
+  clearTimeout(hopTimer)
+  hopping = true
+  draw()
+  hopTimer = setTimeout(() => { hopping = false; draw() }, 450)
+}
+
+// A tap: say hello (and hop); tap during the greeting to see the status; tap again to close it
+function tap() {
+  if (!bubble.hidden && bubble.dataset.kind === 'greeting') return say(status())
+  if (!bubble.hidden) return (bubble.hidden = true)
+  if (state.stage === 'none') return say(status())
+  say(greeting(), 3000, 'greeting')
+  hop()
+}
+
 window.nestegg.onState(s => {
   if (s.error) return say(`⚠️ 帳本讀取失敗\n${s.error}`, 0)
   // Hide the bubble once the error is resolved or the "no trades yet" hint no longer applies
   if (bubble.textContent.startsWith('⚠️') || (state.stage === 'none' && s.stage !== 'none')) bubble.hidden = true
   const first = state.age === undefined
+  const fed = !first && s.buys > state.buys
   state = s
   draw()
   if (first && s.stage === 'none') say(status(), 0)
+  if (fed) feed()
 })
 
 window.nestegg.onSay(text => say(text ?? status(), 8000)) // null = show the current status
@@ -211,7 +289,7 @@ pet.addEventListener('pointermove', e => {
   if (grab.moved) window.nestegg.moveTo(e.screenX - grab.x, e.screenY - grab.y)
 })
 pet.addEventListener('pointerup', () => {
-  if (grab && !grab.moved) bubble.hidden ? say(status()) : (bubble.hidden = true)
+  if (grab && !grab.moved) tap()
   if (grab?.moved) window.nestegg.drop()
   grab = null
 })

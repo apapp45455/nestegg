@@ -23,7 +23,8 @@ The fun of 90s virtual pets was "care × time → a pet that grows into its own 
 The pet is a small, transparent, always-on-top window that sits in a corner of your desktop:
 
 - **Drag** it wherever you like
-- **Click** it to see how many days old it is, how big it is and whether it has eaten
+- **Click** it and it says hello, picking a line that fits the time of day, its hunger, mood and weather; click again while it's talking to see how many days old it is, how big it is and whether it has eaten
+- When a new contribution comes in (a broker sync, an import, a recurring plan or a hand edit), a food bowl appears and the pet eats it. There's no pop-up
 - **Right-click** it to import trades, export a backup, edit the ledger by hand, set up recurring plans, open pet settings or quit
 
 ### Core idea: separate what you control from what the market gives
@@ -421,7 +422,8 @@ This project is not affiliated with any securities firm.
 寵物是一個透明、永遠置頂的小視窗，待在你的桌面角落：
 
 - **拖曳**：搬到你喜歡的位置
-- **點一下**：看牠現在幾天大、多大隻、吃飽了沒
+- **點一下**：牠會跟你打招呼，依時段、肚子餓不餓、心情和天氣挑一句話；趁牠說話時再點一下，就能看牠現在幾天大、多大隻、吃飽了沒
+- 有新的投入時（券商同步、匯入、定期定額或手動記帳），旁邊會出現飼料碗，寵物把它吃掉，不會跳出訊息
 - **右鍵**：匯入交易紀錄、匯出備份、手動記帳、定期定額計畫、寵物設定、結束
 
 ### 核心理念：分開「你能控制的」與「市場給的」

@@ -68,6 +68,13 @@ test('evaluate: 飽足 — 寬限 7 天後每漏一期少一碗，最低 0', () 
   assert.equal(evaluate(l, '2027-01-01').satiety, 0)
 })
 
+test('evaluate: counts the contributions so far, so the pet can eat when one arrives', () => {
+  const l = [buy('2026-01-01', 10_000), buy('2026-02-01', 10_000), { ...buy('2026-02-15', 5_000), action: 'sell' }, buy('2026-03-01', 10_000)]
+  assert.equal(evaluate([], '2026-03-01').buys, 0)
+  assert.equal(evaluate(l, '2026-02-20').buys, 2) // Sells don't count; later buys don't count yet
+  assert.equal(evaluate(l, '2026-03-01').buys, 3)
+})
+
 test('market: 天氣看加權指數，心情看持股單日漲跌，毛色看市值對成本', () => {
   const l = [buy('2026-01-01', 10_000, 100)] // Cost of 100 per share
   const m = (indexChange, close, change) => ({ date: '2026-10-02', indexChange, prices: { '0050': { close, change } } })

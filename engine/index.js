@@ -188,7 +188,7 @@ export function evaluate(ledger, today, market = null, settings = {}) {
   const buys = ledger.filter(r => r.action === 'buy' && r.date <= today).map(r => r.date).sort()
   const [firstBuy, lastBuy] = [buys[0], buys.at(-1)]
   const env = marketMood(held, ledger, today, market, s)
-  if (!firstBuy) return { stage: 'none', age: 0, size: 1, satiety: 3, ...env }
+  if (!firstBuy) return { stage: 'none', age: 0, size: 1, satiety: 3, buys: 0, ...env }
 
   const principal = [...held.values()].reduce((s, h) => s + h.cost + h.amountOnly, 0)
   const age = days(firstBuy, today)
@@ -198,6 +198,7 @@ export function evaluate(ledger, today, market = null, settings = {}) {
     age,
     size: 1 + LEVELS.filter(key => principal >= Math.round(s[key] * 10_000)).length, // A hand-edited 0.14 × 10,000 would be 1400.0000000000002
     satiety: Math.min(3, Math.max(0, 3 - missed)), // 3 = full, one bowl less per missed period, minimum 0 (it never dies)
+    buys: buys.length, // Contributions so far: the pet eats when this grows, whatever brought the new buy in
     ...env,
   }
 }

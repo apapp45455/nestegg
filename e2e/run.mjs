@@ -670,6 +670,29 @@ async function runAll() {
     assert.equal((await page("window.broker.status('ibkr')")).ok.paused, undefined)
   })
 
+  await test('互動：點一下會問好、再點看狀態；有新的投入時寵物吃飯，不跳訊息', async () => {
+    await page('bubble.hidden = true; tap(); 0')
+    assert.equal(await page('bubble.dataset.kind'), 'greeting')
+    assert.doesNotMatch(await page('bubble.textContent'), /第 \d+ 天/)
+    assert.match(await page('pet.className'), /\bhop\b/)
+    await page('tap(); 0') // During the greeting: the status
+    assert.match(await page('bubble.textContent'), /第 \d+ 天/)
+    await page('tap(); 0') // Then closed
+    assert.equal(await page('bubble.hidden'), true)
+    // New contributions (a plan from two months ago): the bowl comes out and the pet eats, with no message
+    const start = new Date(Date.parse(today()) - 60 * 864e5).toISOString().slice(0, 10)
+    await page(`window.plans.set([{ symbol: '0050', amount: 1000, day: 1, start: '${start}' }]); 0`)
+    await until('food.hidden', v => v === false, '飼料碗出現')
+    assert.match(await page('pet.className'), /\beating\b/)
+    assert.equal(await page('bubble.hidden'), true)
+    await until('food.hidden', v => v === true, '吃完收起來', 5_000)
+    assert.doesNotMatch(await page('pet.className'), /\beating\b/)
+    // Fewer contributions: nothing to eat
+    await page('window.plans.set([]); 0')
+    await wait(600)
+    assert.equal(await page('food.hidden'), true)
+  })
+
   await test('畫面：寵物真的有畫出來', async () => {
     const painted = await page(`(() => {
       const d = pet.getContext('2d').getImageData(0, 0, 16, 16).data
