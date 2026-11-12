@@ -121,7 +121,7 @@ process.on('uncaughtException', e => crashes.push(e.message))
 process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
-const { openPlans, openSettings } = await import('../app/main.js')
+const { importCsv, openPlans, openSettings } = await import('../app/main.js')
 const { openSetup, syncSaved } = await import('../app/brokers.js') // Calling syncSaved directly = the auto sync path
 const { default: sinopac } = await import('../app/brokers/sinopac.js')
 let shioajiStops = 0
@@ -668,6 +668,58 @@ async function runAll() {
     }
     assert.equal(net.requests.filter(u => u.includes('/SendRequest')).length, asked)
     assert.equal((await page("window.broker.status('ibkr')")).ok.paused, undefined)
+  })
+
+  await test('互動：點一下會問好、再點看狀態；有新的投入時寵物吃飯，不跳訊息', async () => {
+    await page('bubble.hidden = true; tap(); 0')
+    assert.equal(await page('bubble.dataset.kind'), 'greeting')
+    assert.doesNotMatch(await page('bubble.textContent'), /第 \d+ 天/)
+    assert.match(await page('pet.className'), /\bhop\b/)
+    await page('tap(); 0') // During the greeting: the status
+    assert.match(await page('bubble.textContent'), /第 \d+ 天/)
+    await page('tap(); 0') // Then closed
+    assert.equal(await page('bubble.hidden'), true)
+    // New contributions (a plan from two months ago): the bowl comes out and the pet eats, with no message
+    const start = new Date(Date.parse(today()) - 60 * 864e5).toISOString().slice(0, 10)
+    await page(`window.plans.set([{ symbol: '0050', amount: 1000, day: 1, start: '${start}' }]); 0`)
+    await until('food.hidden', v => v === false, '飼料碗出現')
+    assert.match(await page('pet.className'), /\beating\b/)
+    assert.equal(await page('bubble.hidden'), true)
+    await until('food.hidden', v => v === true, '吃完收起來', 5_000)
+    assert.doesNotMatch(await page('pet.className'), /\beating\b/)
+    // Fewer contributions: nothing to eat
+    await page('window.plans.set([]); 0')
+    await wait(600)
+    assert.equal(await page('food.hidden'), true)
+    // At Lv5 the pet is widest: the bowl still fits inside the window
+    const bowl = await page('(size => { state.size = 5; draw(); food.hidden = false; const r = food.getBoundingClientRect(); food.hidden = true; state.size = size; draw(); return [r.left, r.width] })(state.size)')
+    assert.ok(bowl[0] >= 0 && bowl[1] > 0, `碗的位置 ${bowl}`)
+  })
+
+  await test('匯入 CSV：有新的買進就吃飯；只有賣出或已經匯入過的，寵物用一句話回應，不跳視窗', async () => {
+    const ledger = join(DATA, 'ledger.csv')
+    const before = readFileSync(ledger, 'utf8')
+    const file = join(DATA, 'import.csv')
+    const showOpenDialog = dialog.showOpenDialog
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] })
+    const importing = async rows => {
+      writeFileSync(file, `date,symbol,action,shares,amount,fee\n${rows.join('\n')}\n`)
+      await page('bubble.hidden = true; 0')
+      await importCsv()
+    }
+    try {
+      await importing([`${today()},0050,buy,1,112,0`]) // A new buy: the pet eats, no message
+      await until('food.hidden', v => v === false, '匯入後吃飯')
+      assert.equal(await page('bubble.hidden'), true)
+      await importing([`${today()},ZZZZ,sell,1,100,0`]) // New, but nothing to eat
+      assert.equal(await until('bubble.hidden ? "" : bubble.textContent', v => v, '收下的回應'), '收下了～')
+      await importing([`${today()},ZZZZ,sell,1,100,0`]) // Nothing new
+      assert.equal(await until('bubble.hidden ? "" : bubble.textContent', v => v, '吃過了的回應'), '這些紀錄我都吃過了～')
+    } finally {
+      dialog.showOpenDialog = showOpenDialog
+      writeFileSync(ledger, before)
+      await until('food.hidden', v => v === true, '吃完收起來', 5_000)
+    }
   })
 
   await test('畫面：寵物真的有畫出來', async () => {

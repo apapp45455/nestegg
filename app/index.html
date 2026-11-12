@@ -29,7 +29,15 @@
     #pet.typhoon { animation: shiver .25s linear infinite; }
     @keyframes bounce { 50% { transform: translateY(-4px); } }
     @keyframes wobble { 25% { transform: rotate(-5deg); } 75% { transform: rotate(5deg); } }
+    /* A tap makes it hop; eating wins over everything else while the bowl is out */
+    #pet.hop { animation: hop .45s ease-out; }
+    #pet.eating { animation: nom .35s ease-in-out infinite; }
     @keyframes shiver { 25% { transform: translateX(-1px); } 75% { transform: translateX(1px); } }
+    @keyframes hop { 40% { transform: translateY(-12px); } }
+    @keyframes nom { 50% { transform: translateY(3px) scaleY(.92); } }
+    /* The food bowl sits by the pet's feet without pushing it aside */
+    #pet-row { position: relative; display: flex; }
+    #food { position: absolute; right: 100%; bottom: 0; image-rendering: pixelated; }
   </style>
 </head>
 <body>
@@ -38,7 +46,10 @@
     <canvas id="sky" width="16" height="10" hidden></canvas>
     <span id="hunger" hidden>🍚?</span>
   </div>
-  <canvas id="pet" width="16" height="16"></canvas>
+  <div id="pet-row">
+    <canvas id="food" width="8" height="5" hidden></canvas>
+    <canvas id="pet" width="16" height="16"></canvas>
+  </div>
   <script src="pet.js"></script>
 </body>
 </html>
