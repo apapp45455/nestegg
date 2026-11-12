@@ -80,7 +80,7 @@ function addRows(rows, previous = []) {
   return task
 }
 
-async function importCsv() {
+export async function importCsv() {
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     title: '匯入交易紀錄',
     filters: [{ name: 'CSV', extensions: ['csv'] }],
@@ -88,9 +88,10 @@ async function importCsv() {
   })
   if (canceled) return
   try {
-    const { added } = await addRows(parseLedger(await readFile(filePaths[0], 'utf8')))
-    // New buys show as the pet eating; only an import that brought nothing new needs a word, in the pet's voice
-    if (!added) pet()?.webContents.send('say', '這些紀錄我都吃過了～')
+    const { added, inserted } = await addRows(parseLedger(await readFile(filePaths[0], 'utf8')))
+    // New buys up to today show as the pet eating (see feed in pet.js). Anything else gets a word in the pet's voice:
+    // new rows with nothing to eat (sells, future dates), or nothing new at all
+    if (!inserted.some(r => r.action === 'buy' && r.date <= today())) pet()?.webContents.send('say', added ? '收下了～' : '這些紀錄我都吃過了～')
   } catch (e) {
     dialog.showErrorBox('匯入失敗', e.message)
   }

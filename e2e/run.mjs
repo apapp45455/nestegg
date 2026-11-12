@@ -121,7 +121,7 @@ process.on('uncaughtException', e => crashes.push(e.message))
 process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
-const { openPlans, openSettings } = await import('../app/main.js')
+const { importCsv, openPlans, openSettings } = await import('../app/main.js')
 const { openSetup, syncSaved } = await import('../app/brokers.js') // Calling syncSaved directly = the auto sync path
 const { default: sinopac } = await import('../app/brokers/sinopac.js')
 let shioajiStops = 0
@@ -691,6 +691,32 @@ async function runAll() {
     await page('window.plans.set([]); 0')
     await wait(600)
     assert.equal(await page('food.hidden'), true)
+  })
+
+  await test('匯入 CSV：有新的買進就吃飯；只有賣出或已經匯入過的，寵物用一句話回應，不跳視窗', async () => {
+    const ledger = join(DATA, 'ledger.csv')
+    const before = readFileSync(ledger, 'utf8')
+    const file = join(DATA, 'import.csv')
+    const showOpenDialog = dialog.showOpenDialog
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] })
+    const importing = async rows => {
+      writeFileSync(file, `date,symbol,action,shares,amount,fee\n${rows.join('\n')}\n`)
+      await page('bubble.hidden = true; 0')
+      await importCsv()
+    }
+    try {
+      await importing([`${today()},0050,buy,1,112,0`]) // A new buy: the pet eats, no message
+      await until('food.hidden', v => v === false, '匯入後吃飯')
+      assert.equal(await page('bubble.hidden'), true)
+      await importing([`${today()},ZZZZ,sell,1,100,0`]) // New, but nothing to eat
+      assert.equal(await until('bubble.hidden ? "" : bubble.textContent', v => v, '收下的回應'), '收下了～')
+      await importing([`${today()},ZZZZ,sell,1,100,0`]) // Nothing new
+      assert.equal(await until('bubble.hidden ? "" : bubble.textContent', v => v, '吃過了的回應'), '這些紀錄我都吃過了～')
+    } finally {
+      dialog.showOpenDialog = showOpenDialog
+      writeFileSync(ledger, before)
+      await until('food.hidden', v => v === true, '吃完收起來', 5_000)
+    }
   })
 
   await test('畫面：寵物真的有畫出來', async () => {
