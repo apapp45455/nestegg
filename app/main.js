@@ -16,6 +16,9 @@ let win, settingsWin, plansWin
 // On quit the window is destroyed first, while timers, mouse events and display changes can still arrive, so always get the window through here
 const pet = () => (win && !win.isDestroyed() ? win : null)
 let anchor = { right: 40, bottom: 0 } // Which corner the pet sticks to and how far from it; bottom-right by default
+// Set once the app starts quitting (the context menu's 結束 NestEgg, Dock Quit, Cmd+Q): only then may the pet window close
+let quitting = false
+app.on('before-quit', () => { quitting = true })
 
 // When the display, resolution or Dock size changes, re-place the pet at the same corner and distance so it never ends up off screen
 function place() {
@@ -202,6 +205,9 @@ app.whenReady().then(() => {
   // The pet stays on the desktop it's on.
   // Clicks on transparent areas pass through to the windows behind; the renderer switches back when the mouse is over the pet (forward keeps mousemove events coming)
   win.setIgnoreMouseEvents(true, { forward: true })
+  // The default menu's Close Window (Cmd+W / Ctrl+W), Alt+F4 or the taskbar would otherwise close the pet and, with
+  // another window open, leave the app running with no pet and nothing to bring it back
+  win.on('close', e => { if (!quitting) e.preventDefault() })
   win.loadFile(join(import.meta.dirname, 'index.html'))
   win.webContents.on('did-finish-load', refresh)
   win.webContents.on('context-menu', () => menu.popup({ window: win }))

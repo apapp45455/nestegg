@@ -1,7 +1,7 @@
 // End-to-end tests: really launch NestEgg (main process, pet window, the Fubon sync utility process)
 // with a temp folder, a fake Fubon SDK, a fake Shioaji server and pre-seeded market data: no network, and real user data is never touched.
 // Run: npm run test:e2e (works on macOS and Windows; CI runs it too)
-import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, Menu, dialog, ipcMain, screen } from 'electron'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
@@ -763,9 +763,37 @@ async function runAll() {
     assert.equal((await page("window.broker.status('fubon')")).ok.connected, false)
   })
 
-  await test('結束：視窗關掉後還進來的事件不會讓主程序出錯', async () => {
-    app.on('window-all-closed', () => {}) // For the test: don't quit when the windows close, so later errors are still caught
-    win().destroy()
+  await test('寵物關不掉：選單的「關閉視窗」（Cmd+W）和 close() 都不會讓寵物不見；其他視窗照樣用 Cmd+W 關', async () => {
+    openSettings() // Another window keeps the app running, as in the bug (otherwise a closed pet would quit the run, which looks like a pass)
+    const settings = () => windowAt('/settings.html')
+    await until('document.readyState', v => v === 'complete', '設定載入', 15_000, settings)
+    const item = Menu.getApplicationMenu().items.flatMap(i => i.submenu?.items ?? []).find(i => i.role === 'close')
+    assert.equal(item.accelerator, 'CommandOrControl+W')
+    const closeFromMenu = async w => {
+      if (process.platform === 'darwin') {
+        // macOS handles the role natively: it sends performClose: to the focused window
+        app.focus({ steal: true })
+        w().focus()
+        await until('document.hasFocus()', v => v, '視窗取得焦點', 15_000, w)
+        Menu.sendActionToFirstResponder('performClose:')
+      } else item.click(undefined, w(), w().webContents) // Elsewhere the role calls close() on the focused window
+      await wait(500)
+    }
+    await closeFromMenu(win)
+    assert.ok(win(), '關閉視窗把寵物關掉了')
+    win().close()
+    await wait(500)
+    assert.ok(win(), 'close() 把寵物關掉了')
+    await closeFromMenu(settings)
+    assert.equal(settings(), undefined)
+  })
+
+  await test('結束：寵物跟著結束關掉；視窗關掉後還進來的事件不會讓主程序出錯', async () => {
+    // Quit for real (what 結束 NestEgg, Dock Quit and Cmd+Q do), but stop right before the app exits, so later errors are still caught
+    const quit = new Promise(resolve => app.once('will-quit', e => { e.preventDefault(); resolve() }))
+    app.quit()
+    await Promise.race([quit, wait(5_000).then(() => { throw new Error('等不到：結束時寵物視窗關掉') })])
+    assert.equal(win(), undefined)
     ipcMain.emit('solid', {}, true)
     ipcMain.emit('move', {}, 10, 10)
     ipcMain.emit('drop', {})
