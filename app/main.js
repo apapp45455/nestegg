@@ -6,13 +6,15 @@ import { HEADER, SETTINGS, evaluate, mergeLedger, parseLedger, parsePlanFile, pa
 import { initBrokers, openSetup } from './brokers.js'
 import { writeAtomic } from './files.js'
 import { getMarket, startMarket, updateMarket } from './market.js'
+import { parseSkin } from './skin.js'
 import { anchorOf, placeAt } from './placement.js'
 
 const W = 200, H = 300
 const LEDGER = join(app.getPath('userData'), 'ledger.csv')
 const SETTINGS_FILE = join(app.getPath('userData'), 'settings.json')
 const PLANS_FILE = join(app.getPath('userData'), 'plans.json')
-let win, settingsWin, plansWin
+const SKIN_FILE = join(app.getPath('userData'), 'skin.json')
+let win, settingsWin, plansWin, appearanceWin
 // On quit the window is destroyed first, while timers, mouse events and display changes can still arrive, so always get the window through here
 const pet = () => (win && !win.isDestroyed() ? win : null)
 let anchor = { right: 40, bottom: 0 } // Which corner the pet sticks to and how far from it; bottom-right by default
@@ -141,6 +143,38 @@ ipcMain.handle('settings:set', (_e, input) => {
   return task
 })
 
+// The pet's custom look (see skin.js): a missing or broken file means the default look, so the pet always draws
+const readSkin = () => readFile(SKIN_FILE, 'utf8').then(text => parseSkin(JSON.parse(text))).catch(e => {
+  if (e.code !== 'ENOENT') console.error('寵物外觀讀取失敗，改用預設外觀：', e.message)
+  return {}
+})
+
+export function openAppearance() {
+  if (appearanceWin && !appearanceWin.isDestroyed()) return appearanceWin.focus()
+  appearanceWin = new BrowserWindow({
+    width: 620,
+    height: Math.min(900, screen.getPrimaryDisplay().workArea.height),
+    title: '寵物外觀',
+    webPreferences: { preload: join(import.meta.dirname, 'preload.cjs') },
+  })
+  appearanceWin.loadFile(join(import.meta.dirname, 'appearance.html'))
+  app.focus({ steal: true })
+}
+
+ipcMain.handle('skin:get', readSkin)
+// Queued like the settings; the pet changes its look as soon as the file is saved
+let savingSkin = Promise.resolve()
+ipcMain.handle('skin:set', (_e, input) => {
+  const task = savingSkin.then(async () => {
+    const skin = parseSkin(input) // Throws with the problem, which the window shows; nothing is saved
+    await writeAtomic(SKIN_FILE, JSON.stringify(skin))
+    pet()?.webContents.send('skin', skin)
+    return skin
+  })
+  savingSkin = task.catch(() => {})
+  return task
+})
+
 // One window for all recurring plans: each change saves the whole list, and the pet updates right away
 export function openPlans() {
   if (plansWin && !plansWin.isDestroyed()) return plansWin.focus()
@@ -191,6 +225,7 @@ const actions = [
   { label: '證券帳戶同步…', click: openSetup },
   { label: '定期定額計畫…', click: openPlans },
   { label: '寵物設定…', click: openSettings },
+  { label: '寵物外觀…', click: openAppearance },
 ]
 const menu = Menu.buildFromTemplate([...actions, { type: 'separator' }, { label: '結束 NestEgg', role: 'quit' }])
 

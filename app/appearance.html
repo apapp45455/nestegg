@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>寵物外觀</title>
+  <link rel="stylesheet" href="setup.css">
+  <style>
+    .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+    .editor { display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: start; }
+    #board { width: 320px; height: 320px; touch-action: none; cursor: crosshair; border-radius: 8px; border: 1px solid var(--line); }
+    .tools { display: grid; gap: 10px; }
+    .tools button[aria-pressed="true"] { outline: 2px solid var(--accent); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .row label { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; }
+    .upload .button { display: inline-block; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+    #swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+    #swatches button { width: 22px; height: 22px; padding: 0; border-radius: 4px; border: 1px solid rgba(0, 0, 0, .25); }
+    #preview { width: 64px; height: 64px; image-rendering: pixelated; background: repeating-conic-gradient(#e9e4da 0 25%, #f6f2ea 0 50%) 0 0 / 8px 8px; border-radius: 6px; }
+    input[type=color] { width: 44px; height: 32px; padding: 0; border: none; background: none; }
+    .upload input { display: none; }
+    #dirty { color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>寵物外觀</h1>
+    <p>畫你自己的寵物，或上傳一張圖片自動縮成像素圖。蛋、幼年、成年可以分開畫，沒畫的階段用預設外觀。改完按「儲存」，寵物就會換上。</p>
+  </header>
+
+  <div class="tabs">
+    <button type="button" data-stage="egg">蛋</button>
+    <button type="button" data-stage="baby">幼年</button>
+    <button type="button" data-stage="adult">成年</button>
+  </div>
+
+  <div class="editor">
+    <canvas id="board" width="320" height="320"></canvas>
+    <div class="tools">
+      <div class="row">
+        <input id="color" type="color" value="#ffd34d" aria-label="顏色">
+        <button type="button" data-tool="paint">畫筆</button>
+        <button type="button" data-tool="erase">橡皮擦</button>
+        <button type="button" data-tool="pick">滴管</button>
+        <button type="button" data-tool="eye">眼睛</button>
+      </div>
+      <div id="swatches" aria-label="這張圖用到的顏色"></div>
+      <div class="row">
+        <canvas id="preview" width="16" height="16"></canvas>
+        <span class="note">實際大小預覽</span>
+      </div>
+      <div class="row">
+        <label class="upload"><span class="button">上傳圖片…</span><input id="upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label>
+        <label><input id="removeBg" type="checkbox" checked> 自動去背</label>
+      </div>
+      <div class="row">
+        <button type="button" id="fromDefault">從預設圖案開始</button>
+        <button type="button" id="clear">清空</button>
+        <button type="button" id="reset">這個階段恢復預設</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top: 16px">
+    <button type="button" id="save" class="primary">儲存</button>
+    <span id="dirty" hidden>有還沒儲存的變更</span>
+  </div>
+  <p id="result" role="status"></p>
+
+  <footer class="note">
+    <p>「眼睛」畫筆：點一下標記、再點一下取消。標了眼睛的格子會眨眼。毛色發亮或黯淡時，整隻寵物會跟著變亮或變暗。</p>
+    <p>上傳的圖片會裁掉空白邊、縮成 16×16 貼齊底部；圖片沒有透明背景時，「自動去背」會把跟邊緣連在一起、顏色和角落相近的格子變透明。縮好後可以再用畫筆修。圖片只在這台電腦處理，不會上傳到任何地方。</p>
+  </footer>
+</main>
+<script src="sprites.js"></script>
+<script src="appearance.js"></script>
+</body>
+</html>
