@@ -25,7 +25,7 @@ The pet is a small, transparent, always-on-top window that sits in a corner of y
 - **Drag** it wherever you like
 - **Click** it and it says hello, picking a line that fits the time of day, its hunger, mood and weather; click again while it's talking to see how many days old it is, how big it is and whether it has eaten
 - When a new contribution comes in (a broker sync, an import, a recurring plan or a hand edit), a food bowl appears and the pet eats it. There's no pop-up
-- **Right-click** it to import trades, export a backup, edit the ledger by hand, set up recurring plans, open pet settings or quit
+- **Right-click** it to import trades, export a backup, edit the ledger by hand, set up recurring plans, open pet settings, change its look or quit
 
 ### Core idea: separate what you control from what the market gives
 
@@ -59,6 +59,15 @@ All defaults are defined at the top of [`engine/index.js`](engine/index.js); cha
 > The speech bubble only shows the level, mood and fur, never your amounts or returns, because anyone walking past can see a desktop pet.
 
 Right-click → "寵物設定…" (Pet settings) lets you adjust the **contribution period** (weekly, every two weeks, monthly, quarterly), the **grace days**, the **size thresholds**, and the **thresholds** for weather, mood and fur, and whether to look up US price history (see US stocks below). The table above shows the defaults. Hatching and adulthood depend only on time and can't be adjusted. Settings are stored in `settings.json` in the NestEgg data folder, which only records values that differ from the defaults.
+
+#### Your own look
+
+Right-click → "寵物外觀…" (Pet appearance) opens a 16×16 drawing board. Draw the egg, baby and adult separately; a stage you don't draw keeps the default look.
+
+- Paint with any color, erase, pick a color from the drawing, or start from the default sprite
+- **Upload an image** and it's shrunk to 16×16: the empty border is trimmed, the rest stands on the bottom row, and with "自動去背" (Remove background) on, a plain background connected to the edges becomes transparent. Touch it up with the brush afterwards. The image is processed on your computer and never uploaded
+- Mark the eyes with the "眼睛" (Eyes) brush and they blink. On a custom look, shiny or dull fur brightens or fades the whole pet
+- The look is saved in `skin.json` in the NestEgg data folder; "這個階段恢復預設" (Reset this stage) brings the default back
 
 #### What the market gives → only weather, mood and fur
 
@@ -103,7 +112,7 @@ After a while, the pet evolves into a different form based on your behavior. **N
   - macOS: `~/Library/Application Support/NestEgg/ledger.csv`
   - Windows: `%APPDATA%\NestEgg\ledger.csv`
 
-  Recurring plans and their sells (`plans.json`) and pet settings (`settings.json`) are kept in the same folder.
+  Recurring plans and their sells (`plans.json`), pet settings (`settings.json`) and a custom look (`skin.json`) are kept in the same folder.
 - There is no backend server, and no user data is collected
 - Only two things go online:
   - Downloading **public** closing prices from TWSE and TPEx (for weather, mood and fur), at most once every 6 hours; with US holdings, also Nasdaq's tables of every US stock and ETF and TAIFEX's exchange rates. It always downloads the whole table and matches it on your computer, so **which stocks you hold is never sent anywhere**. The one exception is opt-in: with "逐檔查美股歷史價格" (Look up US price history) on, the US tickers in your recurring plans are looked up one by one (see US stocks above)
@@ -324,7 +333,7 @@ The same data always raises the same pet, so the engine is fully testable and ca
 nestegg/
 ├── engine/    # Pet rules + CSV parsing (pure JS, no dependencies) and tests
 ├── sync/      # External data conversion (pure functions) and tests: broker data → ledger rows, TWSE / Nasdaq closing prices → market data
-├── app/       # Electron desktop pet, context menu, pixel art, pet settings, broker setup wizard
+├── app/       # Electron desktop pet, context menu, pixel art, pet settings, appearance editor, broker setup wizard
 │   └── brokers/   # One adapter per broker
 └── example/   # Sample trade records
 ```
@@ -424,7 +433,7 @@ This project is not affiliated with any securities firm.
 - **拖曳**：搬到你喜歡的位置
 - **點一下**：牠會跟你打招呼，依時段、肚子餓不餓、心情和天氣挑一句話；趁牠說話時再點一下，就能看牠現在幾天大、多大隻、吃飽了沒
 - 有新的投入時（券商同步、匯入、定期定額或手動記帳），旁邊會出現飼料碗，寵物把它吃掉，不會跳出訊息
-- **右鍵**：匯入交易紀錄、匯出備份、手動記帳、定期定額計畫、寵物設定、結束
+- **右鍵**：匯入交易紀錄、匯出備份、手動記帳、定期定額計畫、寵物設定、寵物外觀、結束
 
 ### 核心理念：分開「你能控制的」與「市場給的」
 
@@ -458,6 +467,15 @@ This project is not affiliated with any securities firm.
 > 氣泡裡只顯示 Lv 與心情毛色，不顯示你的金額或報酬率 —— 桌面寵物別人路過也看得到。
 
 右鍵 →「寵物設定…」可以調**投入週期**（每週、每兩週、每月、每季）、**寬限天數**、**體型門檻**，以及天氣、心情、毛色的**門檻**，還有要不要逐檔查美股歷史價格（見下方「美股」）。上表是預設值。孵化、成年只看時間，不開放調整。設定存在 NestEgg 資料夾的 `settings.json`，只記跟預設不一樣的項目。
+
+#### 自己畫外觀
+
+右鍵 →「寵物外觀…」會打開 16×16 的畫板。蛋、幼年、成年可以分開畫；沒畫的階段維持預設外觀。
+
+- 可以用任何顏色畫、用橡皮擦、用滴管從圖上取色，或從預設圖案開始改
+- **上傳圖片**會自動縮成 16×16：裁掉空白邊、貼齊底部；勾「自動去背」時，跟邊緣連在一起的單色背景會變透明。縮好後可以再用畫筆修。圖片只在你的電腦處理，不會上傳
+- 用「眼睛」畫筆標出眼睛，寵物就會眨眼。自訂外觀的毛色發亮或黯淡時，整隻寵物會跟著變亮或變暗
+- 外觀存在 NestEgg 資料夾的 `skin.json`；按「這個階段恢復預設」就能換回預設外觀
 
 #### 市場給的 → 只影響天氣、心情、毛色
 
@@ -502,7 +520,7 @@ This project is not affiliated with any securities firm.
   - macOS：`~/Library/Application Support/NestEgg/ledger.csv`
   - Windows：`%APPDATA%\NestEgg\ledger.csv`
 
-  定期定額計畫與它的賣出紀錄（`plans.json`）、寵物設定（`settings.json`）也放在同一個資料夾。
+  定期定額計畫與它的賣出紀錄（`plans.json`）、寵物設定（`settings.json`）、自訂外觀（`skin.json`）也放在同一個資料夾。
 - 沒有後端伺服器，不收集任何使用者資料
 - 會連網的只有兩件事：
   - 下載證交所、櫃買中心**公開**的收盤資料（天氣、心情、毛色用），每 6 小時最多一次；有美股的話，也下載 Nasdaq 的全部美股與 ETF 價格表和期交所的匯率。一律下載整張表格、在本機比對，**你持有哪些股票不會送出去**。唯一的例外要你自己打開：開啟「逐檔查美股歷史價格」後，定期定額計畫裡的美股代號會一檔一檔查（見上方「美股」）
@@ -723,7 +741,7 @@ petState = evaluate(ledger, today, market, settings)
 nestegg/
 ├── engine/    # 寵物規則 + CSV 解析（純 JS，無依賴）與測試
 ├── sync/      # 外部資料轉換（純函式）與測試：富邦成交紀錄 → 帳本列、證交所與 Nasdaq 收盤資料 → 行情
-├── app/       # Electron 桌面寵物、右鍵選單、像素圖、券商設定精靈
+├── app/       # Electron 桌面寵物、右鍵選單、像素圖、寵物設定、外觀畫板、券商設定精靈
 │   └── brokers/   # 每家券商一個 adapter
 └── example/   # 範例交易紀錄
 ```

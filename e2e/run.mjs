@@ -121,7 +121,7 @@ process.on('uncaughtException', e => crashes.push(e.message))
 process.on('unhandledRejection', e => crashes.push(String(e?.message ?? e)))
 setTimeout(() => { console.error('✖ 逾時'); app.exit(1) }, 120_000)
 
-const { importCsv, openPlans, openSettings } = await import('../app/main.js')
+const { importCsv, openAppearance, openPlans, openSettings } = await import('../app/main.js')
 const { openSetup, syncSaved } = await import('../app/brokers.js') // Calling syncSaved directly = the auto sync path
 const { default: sinopac } = await import('../app/brokers/sinopac.js')
 let shioajiStops = 0
@@ -720,6 +720,40 @@ async function runAll() {
       writeFileSync(ledger, before)
       await until('food.hidden', v => v === true, '吃完收起來', 5_000)
     }
+  })
+
+  await test('外觀：畫板畫的圖存起來寵物馬上換上；上傳圖片自動縮成 16×16 並去背；恢復預設', async () => {
+    openAppearance()
+    const editor = () => windowAt('/appearance.html')
+    await until('document.querySelector("[data-stage=baby]")?.textContent', v => v, '外觀視窗載入', 15_000, editor)
+    const stage = await page('state.stage') // Paint the stage the pet is in now
+    const petPixel = (x, y) => page(`Array.from(pet.getContext('2d').getImageData(${x}, ${y}, 1, 1).data)`)
+    // Draw: a blue band from cell 100 to 139 with an eye on 118, then save
+    await page(`stage = '${stage}'; replace({ pixels: Array(256).fill(null), eyes: [] }); color.value = '#3366ff'; tool = 'paint'; for (let i = 100; i < 140; i++) apply(i, true); tool = 'eye'; apply(118, true); 0`, editor())
+    await page('document.getElementById("save").click(); 0', editor())
+    await until('document.getElementById("result").textContent', v => /已經儲存/.test(v), '儲存完成', 15_000, editor)
+    const skin = JSON.parse(readFileSync(join(DATA, 'skin.json'), 'utf8'))
+    assert.deepEqual([Object.keys(skin), skin[stage].pixels[100], skin[stage].eyes], [[stage], '#3366ff', [118]])
+    assert.deepEqual(await until('JSON.stringify(Array.from(pet.getContext("2d").getImageData(4, 6, 1, 1).data))', v => v === '[51,102,255,255]', '寵物換上自訂外觀'), '[51,102,255,255]')
+    // Upload: a red circle on white. The border is trimmed, the white corners connected to the edge become transparent
+    const upload = removeBg => page(`(async () => {
+      const c = new OffscreenCanvas(64, 64), g = c.getContext('2d')
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64)
+      g.fillStyle = '#ff0000'; g.beginPath(); g.arc(32, 32, 20, 0, Math.PI * 2); g.fill()
+      const { pixels } = await compressImage(await c.convertToBlob(), ${removeBg})
+      return [pixels[0], pixels[8 * 16 + 8], pixels.filter(Boolean).length]
+    })()`, editor())
+    const [corner, middle, filled] = await upload(true)
+    assert.equal(corner, null)
+    assert.equal(middle, '#ff0000')
+    assert.ok(filled > 150 && filled < 256, `圓形占了 ${filled} 格`)
+    assert.equal((await upload(false))[0], '#ffffff') // Without background removal the white stays
+    // Back to the default look
+    await page('document.getElementById("reset").click(); document.getElementById("save").click(); 0', editor())
+    await until('document.getElementById("result").textContent', v => /已經儲存/.test(v), '恢復預設後儲存', 15_000, editor)
+    assert.deepEqual(JSON.parse(readFileSync(join(DATA, 'skin.json'), 'utf8')), {})
+    await until('JSON.stringify(Array.from(pet.getContext("2d").getImageData(4, 6, 1, 1).data))', v => v !== '[51,102,255,255]', '寵物換回預設外觀')
+    editor().close()
   })
 
   await test('畫面：寵物真的有畫出來', async () => {
